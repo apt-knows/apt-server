@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -185,6 +185,7 @@ async function ensureHermesCli(configured: string, version: string) {
   if (!python) throw new Error('Python 3.12 is required to bootstrap Hermes. Install it with `brew install python@3.12`.');
   const environment = resolve(serverDirectory, '.local', `hermes-${version}`);
   const cli = resolve(environment, 'bin', 'hermes');
+  const source = resolve(environment, 'source');
   await mkdir(dirname(environment), { recursive: true });
   if (await executable(cli)) {
     try {
@@ -194,9 +195,27 @@ async function ensureHermesCli(configured: string, version: string) {
   }
   process.stdout.write(`Hermes is not installed; bootstrapping pinned ${version} in ${environment}...\n`);
   if (!await executable(cli)) await foreground(python, ['-m', 'venv', environment], serverDirectory);
+
+  // Hermes releases intentionally reject wheel/sdist builds. Keep an exact,
+  // shallow source checkout and install it in the supported editable mode.
+  // Stage the clone separately so an interrupted download can be repaired by
+  // simply rerunning the launcher.
+  if (!await readable(resolve(source, '.git', 'HEAD'))) {
+    const stagedSource = resolve(environment, `source-install-${process.pid}`);
+    await rm(stagedSource, { recursive: true, force: true });
+    try {
+      await foreground('git', [
+        'clone', '--depth', '1', '--branch', version, '--single-branch',
+        'https://github.com/NousResearch/hermes-agent.git', stagedSource,
+      ], serverDirectory);
+      await rm(source, { recursive: true, force: true });
+      await rename(stagedSource, source);
+    } finally {
+      await rm(stagedSource, { recursive: true, force: true });
+    }
+  }
   await foreground(resolve(environment, 'bin', 'python'), [
-    '-m', 'pip', 'install', '--disable-pip-version-check',
-    `git+https://github.com/NousResearch/hermes-agent.git@${version}`,
+    '-m', 'pip', 'install', '--disable-pip-version-check', '--editable', source,
     'aiohttp>=3.9,<4',
   ], serverDirectory);
   await verifyHermesVersion(cli, version);
@@ -317,6 +336,10 @@ async function executableOnPath(command: string) {
 
 async function executable(path: string) {
   try { await access(path, constants.X_OK); return true; } catch { return false; }
+}
+
+async function readable(path: string) {
+  try { await access(path, constants.R_OK); return true; } catch { return false; }
 }
 
 async function requireFile(path: string, guidance: string) {
