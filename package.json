@@ -7,16 +7,16 @@
     "node": ">=22 <23"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx --watch src/server.ts",
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "provision-user": "tsx src/admin/provision-user.ts",
-    "disable-user": "tsx src/admin/disable-user.ts",
-    "delete-user": "tsx src/admin/delete-user.ts",
+    "provision-user": "node --env-file-if-exists=.env --import tsx src/admin/provision-user.ts",
+    "disable-user": "node --env-file-if-exists=.env --import tsx src/admin/disable-user.ts",
+    "delete-user": "node --env-file-if-exists=.env --import tsx src/admin/delete-user.ts",
     "test:hermes-capability": "tsx scripts/hermes-capability.ts"
   },
   "dependencies": {
