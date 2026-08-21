@@ -25,6 +25,16 @@ npm run dev
 
 `GET /health` is unauthenticated and returns `503` when PostgreSQL or Hermes is unavailable. It never includes credentials or user data.
 
+### One-command physical iPhone stack
+
+With `apt-server` and `apt-mobile` checked out beside each other and the protected server `.env` configured, connect an unlocked iPhone over USB-C and run this from apt-mobile:
+
+```bash
+npm run ios:stack
+```
+
+The launcher discovers ready beta mappings, bootstraps pinned Hermes when needed, provisions missing local profiles, starts all per-profile gateways and Apt Server, writes only public/LAN values to the mobile's ignored `.env.local`, then builds, installs, launches, and serves the app. `Ctrl-C` shuts down the complete stack. See [the local phone stack guide](docs/local-phone-stack.md) for new-Mac setup, user selection, networking, and failure behavior.
+
 ## API
 
 | Method | Path | Behavior |

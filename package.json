@@ -18,6 +18,7 @@
     "disable-user": "node --env-file-if-exists=.env --import tsx src/admin/disable-user.ts",
     "delete-user": "node --env-file-if-exists=.env --import tsx src/admin/delete-user.ts",
     "test:e2e-live": "node --env-file-if-exists=.env --import tsx scripts/e2e-live.ts",
+    "local:phone": "node --env-file-if-exists=.env --import tsx scripts/local-phone-stack.ts",
     "test:hermes-capability": "tsx scripts/hermes-capability.ts"
   },
   "dependencies": {
