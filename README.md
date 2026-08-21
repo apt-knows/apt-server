@@ -8,6 +8,7 @@ Private messaging backend for Apt’s 10-user beta. The mobile app authenticates
 - Supabase Auth access tokens are required on every `/v1/chat/*` route. A `401` never falls back to an anonymous identity.
 - Mobile clients cannot read or write the three chat tables directly. RLS is forced, `anon`/`authenticated` grants are revoked, and only the private server database connection mutates transcripts.
 - There is one user-visible thread, one active run per user, and one stable Hermes session per user.
+- Before each Runs API submission, the server reloads the latest persisted Hermes session messages and supplies them as `conversation_history`; Hermes `v2026.8.19` records a Runs `session_id` but does not reload that transcript automatically.
 - The selected Hermes topology is `per_profile`; see [the Phase 0 result](docs/hermes-capability.md).
 - No outcome classifier, Hunt/Claw orchestration, products, Apt-specific soul, generated skills, or automatic provisioning is part of this service.
 
@@ -69,6 +70,8 @@ After provisioning, start exactly one pinned Hermes process/container for that p
 
 For local host processes on distinct ports, set `HERMES_PROFILE_URL_MAP` to a JSON object such as `{"apt-opaque-a":"http://127.0.0.1:8642","apt-opaque-b":"http://127.0.0.1:8643"}`. Exact profile names are printed by the provisioning commands. Explicit map entries take precedence over the container-name template.
 
+`HERMES_PROVIDER=openai-api` selects OpenAI directly. If `HERMES_PROVIDER=custom`, `HERMES_PROVIDER_BASE_URL` is required so Hermes cannot silently route the credential through its default aggregator.
+
 ## Verification
 
 ```bash
@@ -76,3 +79,11 @@ HERMES_CLI=/path/to/hermes HERMES_VERSION=v2026.8.19 npm run test:hermes-capabil
 ```
 
 The harness creates two fresh profiles and a deterministic OpenAI-compatible provider, then verifies sequential/concurrent turns, provider context and credential separation, session/history/state isolation, restart isolation, cross-key denial, bundled skills, zero enabled dangerous tools, and stop behavior. It writes [the audit result](docs/hermes-capability-results.json).
+
+With Apt Server and two provisioned per-profile gateways already running, the live harness creates short-lived Supabase sessions without sending email and exercises the public API against the real database and provider:
+
+```bash
+npm run test:e2e-live -- --user-a <uuid-a> --user-b <uuid-b>
+```
+
+It verifies authentication, real message/SSE completion, duplicate-send idempotency, pagination, stop, and cross-user isolation. The `--write-context <marker>` and `--recall-context <marker>` modes support a deterministic continuity check across a manual Hermes restart; `--leave-running <prompt>` supports the Apt Server restart/no-replay probe.

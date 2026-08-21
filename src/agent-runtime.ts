@@ -66,9 +66,23 @@ export class HermesAgentRuntime implements AgentRuntime {
   }
 
   async submit(instance: AgentInstance, input: string) {
+    const historyResponse = await this.request(
+      instance,
+      `/api/sessions/${encodeURIComponent(instance.hermesSessionId)}/messages?limit=500&order=latest`,
+    );
+    const historyBody = (await historyResponse.json()) as {
+      data?: Array<{ role?: unknown; content?: unknown }>;
+    };
+    if (!Array.isArray(historyBody.data)) {
+      throw new AppError('UPSTREAM_FAILED', 'Hermes did not return session history.');
+    }
+    const conversationHistory = historyBody.data
+      .filter((message): message is { role: 'user' | 'assistant'; content: string } =>
+        (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string')
+      .map(({ role, content }) => ({ role, content }));
     const response = await this.request(instance, '/v1/runs', {
       method: 'POST',
-      body: JSON.stringify({ input, session_id: instance.hermesSessionId }),
+      body: JSON.stringify({ input, session_id: instance.hermesSessionId, conversation_history: conversationHistory }),
     });
     const body = (await response.json()) as { run_id?: string };
     if (!body.run_id) throw new AppError('UPSTREAM_FAILED', 'Hermes did not return a run ID.');

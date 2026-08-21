@@ -44,11 +44,19 @@ const configSchema = z.object({
   HERMES_KEY_SECRET: z.string().min(32),
   HERMES_HOME: z.string().default('/var/lib/hermes'),
   HERMES_CLI: z.string().default('hermes'),
-  HERMES_PROVIDER: z.string().default('custom'),
+  HERMES_PROVIDER: z.string().default('openai-api'),
   HERMES_MODEL: configuredValue,
   HERMES_PROVIDER_BASE_URL: z.url().optional(),
   HERMES_PROVIDER_KEY_ENV: z.string().regex(/^[A-Z][A-Z0-9_]*$/).default('OPENAI_API_KEY'),
   HERMES_PROVIDER_API_KEY: configuredValue,
+}).superRefine((value, context) => {
+  if (value.HERMES_PROVIDER === 'custom' && !value.HERMES_PROVIDER_BASE_URL) {
+    context.addIssue({
+      code: 'custom',
+      path: ['HERMES_PROVIDER_BASE_URL'],
+      message: 'HERMES_PROVIDER_BASE_URL is required when HERMES_PROVIDER=custom.',
+    });
+  }
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
