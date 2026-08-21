@@ -5,6 +5,11 @@ const booleanFromString = z
   .default('false')
   .transform((value) => value === 'true');
 
+const configuredValue = z.string().min(1).refine(
+  (value) => !value.includes('__REQUIRES_'),
+  'Replace the local setup marker with the real secret or provider value.',
+);
+
 const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('127.0.0.1'),
@@ -13,8 +18,8 @@ const configSchema = z.object({
   APT_ALLOWED_ORIGINS: z.string().default(''),
   SUPABASE_URL: z.url(),
   SUPABASE_PUBLISHABLE_KEY: z.string().min(20),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  SUPABASE_DATABASE_URL: z.string().min(1),
+  SUPABASE_SERVICE_ROLE_KEY: configuredValue.pipe(z.string().min(20)),
+  SUPABASE_DATABASE_URL: configuredValue,
   SUPABASE_DATABASE_SSL: booleanFromString,
   HERMES_VERSION: z.string().default('v2026.8.19'),
   HERMES_BASE_URL: z.url().default('http://127.0.0.1:8642'),
@@ -24,10 +29,10 @@ const configSchema = z.object({
   HERMES_HOME: z.string().default('/var/lib/hermes'),
   HERMES_CLI: z.string().default('hermes'),
   HERMES_PROVIDER: z.string().default('custom'),
-  HERMES_MODEL: z.string().min(1),
+  HERMES_MODEL: configuredValue,
   HERMES_PROVIDER_BASE_URL: z.url().optional(),
   HERMES_PROVIDER_KEY_ENV: z.string().regex(/^[A-Z][A-Z0-9_]*$/).default('OPENAI_API_KEY'),
-  HERMES_PROVIDER_API_KEY: z.string().min(1),
+  HERMES_PROVIDER_API_KEY: configuredValue,
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;

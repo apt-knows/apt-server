@@ -3,7 +3,13 @@ import { profileIdentity, ProvisioningService, type HermesProfileAdmin } from '.
 import { instance, repository, USER_A } from './fixtures.js';
 
 function hermes(exists = false): HermesProfileAdmin {
-  return { exists: vi.fn(async () => exists), create: vi.fn(async () => undefined), configure: vi.fn(async () => undefined), delete: vi.fn(async () => undefined) };
+  return {
+    exists: vi.fn(async () => exists),
+    create: vi.fn(async () => undefined),
+    configure: vi.fn(async () => undefined),
+    validate: vi.fn(async () => undefined),
+    delete: vi.fn(async () => undefined),
+  };
 }
 
 describe('manual provisioning lifecycle', () => {
@@ -21,7 +27,21 @@ describe('manual provisioning lifecycle', () => {
     await service.provision(USER_A);
     expect(profiles.create).toHaveBeenCalledOnce();
     expect(profiles.configure).toHaveBeenCalledOnce();
+    expect(profiles.validate).toHaveBeenCalledOnce();
     expect(repo.upsertAgentInstance).toHaveBeenCalledOnce();
+  });
+
+  it('returns an existing healthy mapping without adding another validation turn', async () => {
+    const identity = profileIdentity(USER_A, 's'.repeat(32));
+    const existing = { ...instance, hermesProfileName: identity.profileName, hermesSessionId: identity.sessionId };
+    const repo = repository({ getAgentInstance: vi.fn(async () => existing) });
+    const profiles = hermes(true);
+    const service = new ProvisioningService(repo, { requireUser: vi.fn(async () => undefined) }, profiles, 's'.repeat(32));
+    await expect(service.provision(USER_A)).resolves.toEqual(existing);
+    expect(profiles.create).not.toHaveBeenCalled();
+    expect(profiles.configure).not.toHaveBeenCalled();
+    expect(profiles.validate).not.toHaveBeenCalled();
+    expect(repo.upsertAgentInstance).not.toHaveBeenCalled();
   });
 
   it('requires exact confirmation and deletes Hermes before database records', async () => {
