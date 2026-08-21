@@ -20,6 +20,7 @@ export interface HermesRuntimeConfig {
   baseUrl: string;
   topology: 'shared' | 'per_profile';
   profileUrlTemplate: string;
+  profileUrls?: Record<string, string>;
   keySecret: string;
   timeoutMs?: number;
 }
@@ -39,6 +40,8 @@ export class HermesAgentRuntime implements AgentRuntime {
     if (this.config.topology === 'shared') {
       return `${this.config.baseUrl}/p/${encodeURIComponent(instance.hermesProfileName)}`;
     }
+    const configured = this.config.profileUrls?.[instance.hermesProfileName];
+    if (configured) return configured.replace(/\/$/, '');
     return this.config.profileUrlTemplate.replace('{profile}', encodeURIComponent(instance.hermesProfileName)).replace(/\/$/, '');
   }
 

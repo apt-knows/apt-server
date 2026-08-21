@@ -10,6 +10,21 @@ const configuredValue = z.string().min(1).refine(
   'Replace the local setup marker with the real secret or provider value.',
 );
 
+const profileUrlMap = z.string().default('{}').transform((value, context) => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('expected an object');
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.some(([profile, url]) => !/^apt-[a-f0-9]{20}$/.test(profile) || typeof url !== 'string' || !URL.canParse(url))) {
+      throw new Error('expected opaque profile names mapped to absolute URLs');
+    }
+    return Object.fromEntries(entries) as Record<string, string>;
+  } catch (error) {
+    context.addIssue({ code: 'custom', message: `HERMES_PROFILE_URL_MAP must be valid JSON: ${String(error)}` });
+    return z.NEVER;
+  }
+});
+
 const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('127.0.0.1'),
@@ -25,6 +40,7 @@ const configSchema = z.object({
   HERMES_BASE_URL: z.url().default('http://127.0.0.1:8642'),
   HERMES_TOPOLOGY: z.enum(['shared', 'per_profile']).default('per_profile'),
   HERMES_PROFILE_URL_TEMPLATE: z.string().default('http://hermes-{profile}:8642'),
+  HERMES_PROFILE_URL_MAP: profileUrlMap,
   HERMES_KEY_SECRET: z.string().min(32),
   HERMES_HOME: z.string().default('/var/lib/hermes'),
   HERMES_CLI: z.string().default('hermes'),
@@ -57,6 +73,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
       baseUrl: parsed.HERMES_BASE_URL.replace(/\/$/, ''),
       topology: parsed.HERMES_TOPOLOGY,
       profileUrlTemplate: parsed.HERMES_PROFILE_URL_TEMPLATE,
+      profileUrls: parsed.HERMES_PROFILE_URL_MAP,
       keySecret: parsed.HERMES_KEY_SECRET,
       home: parsed.HERMES_HOME,
       cli: parsed.HERMES_CLI,

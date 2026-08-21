@@ -67,6 +67,8 @@ Deletion removes the Hermes profile before database records. A failure leaves da
 
 After provisioning, start exactly one pinned Hermes process/container for that profile. Name it `hermes-<opaque-profile-name>` on the backend network so `HERMES_PROFILE_URL_TEMPLATE=http://hermes-{profile}:8642` resolves it. Never expose port `8642` publicly. Repeat the example service in [docker-compose.example.yml](docker-compose.example.yml) once per beta profile; there is no runtime provisioner.
 
+For local host processes on distinct ports, set `HERMES_PROFILE_URL_MAP` to a JSON object such as `{"apt-opaque-a":"http://127.0.0.1:8642","apt-opaque-b":"http://127.0.0.1:8643"}`. Exact profile names are printed by the provisioning commands. Explicit map entries take precedence over the container-name template.
+
 ## Verification
 
 ```bash
