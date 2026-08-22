@@ -1,0 +1,23 @@
+{
+  "hermesVersion": "v2026.8.19",
+  "sharedTopology": {
+    "result": "fail",
+    "reason": "custom provider credential resolved from profile A while serving profile B"
+  },
+  "selectedTopology": "per_profile",
+  "profiles": [
+    "apt-capability-a",
+    "apt-capability-b"
+  ],
+  "sequential": "pass",
+  "concurrent": "pass",
+  "historyIsolation": "pass",
+  "providerContextIsolation": "pass",
+  "stateDatabaseIsolation": "pass",
+  "restartIsolation": "pass",
+  "crossKeyDenial": "pass",
+  "bundledSkills": "pass",
+  "dangerousToolsDisabled": "pass",
+  "stop": "pass",
+  "testedAt": "2026-08-21T16:08:47.600Z"
+}
