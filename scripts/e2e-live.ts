@@ -144,10 +144,10 @@ async function loadHermesIdentity(userId: string): Promise<HermesIdentity> {
     const result = await client.query<{ hermes_profile_name: string; hermes_session_id: string }>(
       `select hermes_profile_name, hermes_session_id
        from public.agent_instances
-       where user_id = $1 and status = 'active'`,
+       where user_id = $1 and status = 'ready'`,
       [userId],
     );
-    assert(result.rowCount === 1, 'Founder does not have exactly one active Hermes agent instance.');
+    assert(result.rowCount === 1, 'Founder does not have exactly one ready Hermes agent instance.');
     return {
       profileName: result.rows[0]!.hermes_profile_name,
       sessionId: result.rows[0]!.hermes_session_id,
