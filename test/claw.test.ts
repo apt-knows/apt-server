@@ -190,8 +190,8 @@ describe('Claw service tool binding', () => {
     const service = new ClawService(repository);
     const researchedCandidate = candidate();
     const location = {
-      latitude: 40.7,
-      longitude: -74,
+      latitude: 40.74843123,
+      longitude: -73.98565678,
       accuracy: 25,
       capturedAt: new Date().toISOString(),
       coarseLabel: 'New York, NY, 10001, US',
