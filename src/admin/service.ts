@@ -1,13 +1,10 @@
 import { createHmac } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import type { Dirent } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import { hermesApiKey } from '../agent-runtime.js';
-import { aptBridgeToken } from '../claw/bridge-auth.js';
 import type { AppConfig } from '../config.js';
 import type { AgentInstance } from '../domain.js';
 import { AppError } from '../errors.js';
@@ -53,7 +50,6 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
   constructor(private readonly config: AppConfig['hermes']) {}
 
   private profileDir(profileName: string) {
-    if (!/^apt-[a-f0-9]{20}$/.test(profileName)) throw new Error('Refusing an invalid Hermes profile name.');
     return `${this.config.home.replace(/\/$/, '')}/profiles/${profileName}`;
   }
 
@@ -69,59 +65,25 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
   }
 
   async create(profileName: string) {
-    await this.run(['profile', 'create', profileName, '--no-alias', '--no-skills', '--description', 'Private Apt beta commerce profile.']);
+    await this.run(['profile', 'create', profileName, '--no-alias', '--description', 'Private Apt beta chat profile.']);
   }
 
   async configure(profileName: string) {
     const profileArgs = ['--profile', profileName, 'config', 'set'];
-    const sharedSkills = `${this.profileDir(profileName)}/apt-shared-skills`;
-    const bridgeSource = fileURLToPath(new URL('../claw/bridge-server.ts', import.meta.url));
-    const bridgeCompiled = fileURLToPath(new URL('../claw/bridge-server.js', import.meta.url));
-    const bridgeEntry = await firstAccessible([bridgeSource, bridgeCompiled]);
-    const tsxLoader = fileURLToPath(new URL('../../node_modules/tsx/dist/loader.mjs', import.meta.url));
-    const bridgeArgs = bridgeEntry.endsWith('.ts') ? ['--import', tsxLoader, bridgeEntry] : [bridgeEntry];
-    const bridgeTools = [
-      'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
-      'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
-    ];
     const entries: [string, string][] = [
       ['model.default', this.config.model],
       ['model.provider', this.config.provider],
       ['model.api_key', `\${${this.config.providerKeyEnv}}`],
-      ['platform_toolsets.api_server', '["memory","session_search","skills"]'],
-      ['agent.disabled_toolsets', '["web","browser","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","todo","context_engine","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
-      ['memory.memory_enabled', 'true'],
-      ['memory.user_profile_enabled', 'true'],
-      ['memory.write_approval', 'false'],
-      ['memory.memory_char_limit', '2200'],
-      ['memory.user_char_limit', '1375'],
-      ['skills.external_dirs', JSON.stringify([sharedSkills])],
-      ['skills.guard_agent_created', 'true'],
-      ['skills.write_approval', 'false'],
-      ['auxiliary.background_review.enabled', 'true'],
-      ['mcp_servers', JSON.stringify({
-        apt: {
-          command: process.execPath,
-          args: bridgeArgs,
-          env: { APT_INTERNAL_URL: '${APT_INTERNAL_URL}', APT_BRIDGE_TOKEN: '${APT_BRIDGE_TOKEN}' },
-          tools: { include: bridgeTools },
-          connect_timeout: 15,
-          enabled: true,
-        },
-      })],
+      ['platform_toolsets.api_server', '["no_mcp"]'],
+      ['agent.disabled_toolsets', '["web","browser","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","skills","todo","memory","context_engine","session_search","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
+      ['memory.user_profile.enabled', 'false'],
+      ['memory.auto_save', 'false'],
     ];
     if (this.config.providerBaseUrl) entries.push(['model.base_url', this.config.providerBaseUrl]);
-    for (const [key, value] of entries) {
-      await this.run([...profileArgs, ...(key === 'mcp_servers' ? ['--force'] : []), key, value]);
-    }
-    await this.run(['--profile', profileName, 'skills', 'opt-out', '--remove', '--yes']);
-    await this.removeNonPrivateSkills(profileName);
+    for (const [key, value] of entries) await this.run([...profileArgs, key, value]);
     await this.upsertSecret(profileName, this.config.providerKeyEnv, this.config.providerApiKey);
     await this.upsertSecret(profileName, 'API_SERVER_KEY', hermesApiKey(profileName, this.config.keySecret));
-    await this.upsertSecret(profileName, 'APT_INTERNAL_URL', this.config.internalUrl);
-    await this.upsertSecret(profileName, 'APT_BRIDGE_TOKEN', aptBridgeToken(profileName, this.config.keySecret));
     await this.run(['--profile', profileName, 'config', 'check']);
-    await this.run(['--profile', profileName, 'mcp', 'test', 'apt']);
   }
 
   async validate(profileName: string, sessionId: string) {
@@ -151,14 +113,10 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
         request('/v1/capabilities'), request('/v1/skills'), request('/v1/toolsets'),
       ]);
       if (!capabilities.ok || !skills.ok || !toolsets.ok) throw new Error('Hermes discovery validation failed.');
-      await skills.json();
-      const toolRows = rows(await toolsets.json(), 'toolsets') as Array<{ name?: string; key?: string; enabled?: boolean; tools?: unknown[] }>;
-      const enabledToolsets = new Set(toolRows.filter((row) => row.enabled).map((row) => row.key ?? row.name).filter(Boolean));
-      for (const required of ['memory', 'session_search', 'skills']) {
-        if (!enabledToolsets.has(required)) throw new Error(`Hermes profile is missing required ${required} toolset.`);
-      }
-      const forbidden = [...enabledToolsets].filter((key) => !['memory', 'session_search', 'skills'].includes(String(key)));
-      if (forbidden.length) throw new Error(`Hermes API server exposes forbidden toolsets: ${forbidden.join(', ')}.`);
+      const skillRows = rows(await skills.json(), 'skills');
+      const toolRows = rows(await toolsets.json(), 'toolsets') as Array<{ enabled?: boolean; tools?: unknown[] }>;
+      if (!skillRows.length) throw new Error('Hermes profile has no seeded bundled skills.');
+      if (toolRows.some((row) => row.enabled && row.tools?.length)) throw new Error('Hermes API server exposes an enabled model tool.');
 
       const submitted = await request('/v1/runs', {
         method: 'POST',
@@ -192,25 +150,9 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
     await chmod(path, 0o600);
   }
 
-  private async removeNonPrivateSkills(profileName: string) {
-    const directory = `${this.profileDir(profileName)}/skills`;
-    let entries: Dirent[] = [];
-    try { entries = await readdir(directory, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      if (!entry.name.startsWith('private.')) await rm(`${directory}/${entry.name}`, { recursive: true, force: true });
-    }
-  }
-
   async delete(profileName: string) {
     if (await this.exists(profileName)) await this.run(['profile', 'delete', profileName, '--yes']);
   }
-}
-
-async function firstAccessible(paths: string[]) {
-  for (const path of paths) {
-    try { await access(path); return path; } catch { /* try compiled/source counterpart */ }
-  }
-  throw new Error('Apt Claw bridge entrypoint is missing.');
 }
 
 export class ProvisioningService {
@@ -229,10 +171,10 @@ export class ProvisioningService {
       throw new Error('Stored agent identity does not match the deterministic provisioning identity.');
     }
     const profileExists = await this.hermes.exists(identity.profileName);
+    if (existing && profileExists) return existing;
     if (!profileExists) await this.hermes.create(identity.profileName);
     await this.hermes.configure(identity.profileName);
     await this.hermes.validate(identity.profileName, identity.sessionId);
-    if (existing) return existing;
     return this.repository.upsertAgentInstance({ userId, hermesProfileName: identity.profileName, hermesSessionId: identity.sessionId });
   }
 

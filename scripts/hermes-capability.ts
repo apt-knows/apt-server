@@ -18,32 +18,18 @@ const profileKeys = {
 const providerKeys = { 'apt-capability-a': 'provider-a', 'apt-capability-b': 'provider-b' };
 const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const providerRequests: Record<string, string[]> = { 'provider-a': [], 'provider-b': [] };
-const providerTools: Record<string, string[]> = { 'provider-a': [], 'provider-b': [] };
 const activeUrls: Record<typeof profiles[number], string> = {
   'apt-capability-a': '', 'apt-capability-b': '',
 };
-let sharedMcpDiscovery = true;
-const bridgeEntry = join(process.cwd(), 'src', 'claw', 'bridge-server.ts');
-const tsxLoader = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'loader.mjs');
-const aptTools = ['apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact', 'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt'];
 
-function configYaml(multiplex: boolean, apiEnabled: boolean, port: number, sharedSkills = '') {
-  return `model:\n  default: mock-model\n  provider: custom\n  base_url: http://127.0.0.1:${providerPort}/v1\n  api_key: \${MOCK_PROVIDER_KEY}\nplatform_toolsets:\n  api_server: [memory, session_search, skills]\nagent:\n  disabled_toolsets: [web, browser, terminal, file, code_execution, vision, video, image_gen, video_gen, bfl, x_search, tts, stt, todo, context_engine, clarify, delegation, cronjob, homeassistant, spotify, discord, discord_admin, yuanbao, computer_use]\nmemory:\n  memory_enabled: true\n  user_profile_enabled: true\n  write_approval: false\n  memory_char_limit: 2200\n  user_char_limit: 1375\nskills:\n  external_dirs: [${JSON.stringify(sharedSkills)}]\n  guard_agent_created: true\n  write_approval: false\nauxiliary:\n  background_review:\n    enabled: true\nmcp_servers:\n  apt:\n    command: ${JSON.stringify(process.execPath)}\n    args: [\"--import\", ${JSON.stringify(tsxLoader)}, ${JSON.stringify(bridgeEntry)}]\n    env:\n      APT_INTERNAL_URL: \"http://127.0.0.1:9\"\n      APT_BRIDGE_TOKEN: \"apt-capability-token-0123456789abcdef\"\n    tools:\n      include: [${aptTools.join(', ')}]\n    connect_timeout: 15\n    enabled: true\ngateway:\n  multiplex_profiles: ${multiplex}\n  multiplex_profile_allowlist: [${profiles.join(', ')}]\nplatforms:\n  api_server:\n    enabled: ${apiEnabled}\n    host: 127.0.0.1\n    port: ${port}\n    max_concurrent_runs: 10\n`;
+function configYaml(multiplex: boolean, apiEnabled: boolean, port: number) {
+  return `model:\n  default: mock-model\n  provider: custom\n  base_url: http://127.0.0.1:${providerPort}/v1\n  api_key: \${MOCK_PROVIDER_KEY}\nplatform_toolsets:\n  api_server: [no_mcp]\nagent:\n  disabled_toolsets: [web, browser, terminal, file, code_execution, vision, video, image_gen, video_gen, bfl, x_search, tts, stt, skills, todo, memory, context_engine, session_search, clarify, delegation, cronjob, homeassistant, spotify, discord, discord_admin, yuanbao, computer_use]\ngateway:\n  multiplex_profiles: ${multiplex}\n  multiplex_profile_allowlist: [${profiles.join(', ')}]\nplatforms:\n  api_server:\n    enabled: ${apiEnabled}\n    host: 127.0.0.1\n    port: ${port}\n    max_concurrent_runs: 10\n`;
 }
 
 async function writeProfile(home: string, profile: typeof profiles[number]) {
   const directory = join(home, 'profiles', profile);
-  const sharedSkills = join(directory, 'apt-shared-skills');
-  await mkdir(join(directory, 'memories'), { recursive: true });
-  await mkdir(join(directory, 'skills', 'private.capability'), { recursive: true });
-  await mkdir(join(sharedSkills, 'apt-commerce-verification'), { recursive: true });
-  await writeFile(join(directory, 'config.yaml'), configYaml(false, false, gatewayPort, sharedSkills), 'utf8');
+  await writeFile(join(directory, 'config.yaml'), configYaml(false, false, gatewayPort), 'utf8');
   await writeFile(join(directory, '.env'), `API_SERVER_KEY=${profileKeys[profile]}\nMOCK_PROVIDER_KEY=${providerKeys[profile]}\n`, { mode: 0o600 });
-  await writeFile(join(directory, 'SOUL.md'), `Private Soul probe for ${profile}.\n`, 'utf8');
-  await writeFile(join(directory, 'memories', 'USER.md'), `USER hot-cache probe for ${profile}.\n`, 'utf8');
-  await writeFile(join(directory, 'memories', 'MEMORY.md'), `MEMORY hot-cache probe for ${profile}.\n`, 'utf8');
-  await writeFile(join(directory, 'skills', 'private.capability', 'SKILL.md'), '---\nname: private.capability\ndescription: User-scoped capability probe.\n---\n# Private capability probe\n', 'utf8');
-  await writeFile(join(sharedSkills, 'apt-commerce-verification', 'SKILL.md'), '---\nname: apt-commerce-verification\ndescription: Read-only shared commerce verification probe.\n---\n# Shared commerce verification probe\n', 'utf8');
 }
 
 function providerServer() {
@@ -56,11 +42,10 @@ function providerServer() {
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') { response.statusCode = 404; response.end(); return; }
     let raw = '';
     for await (const chunk of request) raw += chunk;
-    const body = JSON.parse(raw) as { stream?: boolean; messages?: Array<{ role?: string; content?: string }>; tools?: Array<{ function?: { name?: string } }> };
+    const body = JSON.parse(raw) as { stream?: boolean; messages?: Array<{ role?: string; content?: string }> };
     const providerKey = (request.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const contents = (body.messages ?? []).filter((item) => item.role === 'user').map((item) => item.content ?? '');
     if (providerRequests[providerKey]) providerRequests[providerKey].push(contents.join('\n'));
-    if (providerTools[providerKey]) providerTools[providerKey].push(...(body.tools ?? []).map((tool) => tool.function?.name ?? '').filter(Boolean));
     const latest = [...(body.messages ?? [])].reverse().find((item) => item.role === 'user')?.content ?? '';
     if (latest.includes('SLOW')) await new Promise((resolve) => setTimeout(resolve, 3_000));
     const output = `mock:${latest}`;
@@ -145,12 +130,8 @@ try {
   providerPort = providerAddress.port;
   gatewayPort = await reservePort();
   for (const profile of profiles) {
-    await execFileAsync(hermes, ['profile', 'create', profile, '--no-alias', '--no-skills'], { env: { ...process.env, HERMES_HOME: home }, timeout: 60_000 });
+    await execFileAsync(hermes, ['profile', 'create', profile, '--no-alias'], { env: { ...process.env, HERMES_HOME: home }, timeout: 60_000 });
     await writeProfile(home, profile);
-    const mcpProbe = await execFileAsync(hermes, ['--profile', profile, 'mcp', 'test', 'apt'], {
-      env: { ...process.env, HERMES_HOME: home }, timeout: 60_000,
-    });
-    for (const tool of aptTools) assert(mcpProbe.stdout.includes(tool), `${profile} MCP discovery omitted ${tool}.`);
   }
   await mkdir(home, { recursive: true });
   await writeFile(join(home, 'config.yaml'), configYaml(true, true, gatewayPort), 'utf8');
@@ -162,14 +143,11 @@ try {
     const [capabilities, skills, toolsets] = await Promise.all([api(profile, '/v1/capabilities'), api(profile, '/v1/skills'), api(profile, '/v1/toolsets')]);
     assert(capabilities.ok && skills.ok && toolsets.ok, `${profile} discovery endpoints failed.`);
     const skillBody = await skills.json() as unknown[] | { skills?: unknown[]; data?: unknown[] };
-    const toolBody = await toolsets.json() as Array<{ key?: string; name?: string; enabled?: boolean; tools?: string[] }> | { toolsets?: Array<{ key?: string; name?: string; enabled?: boolean; tools?: string[] }>; data?: Array<{ key?: string; name?: string; enabled?: boolean; tools?: string[] }> };
+    const toolBody = await toolsets.json() as Array<{ enabled?: boolean; tools?: string[] }> | { toolsets?: Array<{ enabled?: boolean; tools?: string[] }>; data?: Array<{ enabled?: boolean; tools?: string[] }> };
     const skillRows = Array.isArray(skillBody) ? skillBody : skillBody.skills ?? skillBody.data ?? [];
     const toolRows = Array.isArray(toolBody) ? toolBody : toolBody.toolsets ?? toolBody.data ?? [];
-    assert(skillRows.length === 2, `${profile} did not expose exactly the Apt shared and private skill probes: ${JSON.stringify(skillBody).slice(0, 1_000)}`);
-    const enabledKeys = toolRows.filter((row) => row.enabled).map((row) => row.key ?? row.name);
-    for (const required of ['memory', 'session_search', 'skills']) assert(enabledKeys.includes(required), `${profile} is missing ${required}.`);
-    if (!enabledKeys.includes('mcp-apt')) sharedMcpDiscovery = false;
-    assert(enabledKeys.every((key) => ['memory', 'session_search', 'skills'].includes(String(key))), `${profile} exposed a forbidden toolset: ${enabledKeys.join(', ')}.`);
+    assert(skillRows.length > 0, `${profile} did not retain bundled skills: ${JSON.stringify(skillBody).slice(0, 1_000)}`);
+    assert(toolRows.every((row) => !row.enabled || !(row.tools?.length)), `${profile} exposed an enabled tool.`);
   }
   assert((await api(profiles[1], '/v1/capabilities', {}, profileKeys[profiles[0]])).status === 401, 'Cross-profile API key was accepted.');
   assert((await api(profiles[0], '/v1/capabilities', {}, 'wrong-key-0123456789abcdef0123456789abcdef')).status === 401, 'Invalid API key was accepted.');
@@ -200,14 +178,12 @@ try {
   for (let index = 0; index < profiles.length; index += 1) {
     const profile = profiles[index]!;
     const port = isolatedPorts[index]!;
-    await writeFile(join(home, 'profiles', profile, 'config.yaml'), configYaml(false, true, port, join(home, 'profiles', profile, 'apt-shared-skills')), 'utf8');
+    await writeFile(join(home, 'profiles', profile, 'config.yaml'), configYaml(false, true, port), 'utf8');
     activeUrls[profile] = `http://127.0.0.1:${port}`;
   }
   gateways = await Promise.all(profiles.map((profile, index) => startGateway(home, isolatedPorts[index]!, profile)));
   providerRequests['provider-a'] = [];
   providerRequests['provider-b'] = [];
-  providerTools['provider-a'] = [];
-  providerTools['provider-b'] = [];
 
   assert((await api(profiles[1], '/v1/capabilities', {}, profileKeys[profiles[0]])).status === 401, 'Fallback accepted a cross-profile API key.');
   await waitForRun(profiles[0], await submit(profiles[0], 'fallback-alpha-private', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'));
@@ -217,21 +193,6 @@ try {
     submit(profiles[1], 'fallback-beta-concurrent', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
   ]);
   await Promise.all([waitForRun(profiles[0], fallbackConcurrent[0]), waitForRun(profiles[1], fallbackConcurrent[1])]);
-  for (const profile of profiles) {
-    const toolsets = await api(profile, '/v1/toolsets');
-    const body = await toolsets.json() as Array<{ key?: string; name?: string; enabled?: boolean }> | { toolsets?: Array<{ key?: string; name?: string; enabled?: boolean }>; data?: Array<{ key?: string; name?: string; enabled?: boolean }> };
-    const rows = Array.isArray(body) ? body : body.toolsets ?? body.data ?? [];
-    const enabledKeys = rows.filter((row) => row.enabled).map((row) => row.key ?? row.name);
-    for (const required of ['memory', 'session_search', 'skills']) assert(enabledKeys.includes(required), `Per-profile ${profile} is missing ${required}: enabled=${enabledKeys.join(', ')}`);
-    assert(enabledKeys.every((key) => ['memory', 'session_search', 'skills'].includes(String(key))), `Per-profile ${profile} exposed forbidden toolsets: ${enabledKeys.join(', ')}.`);
-  }
-  for (const providerKey of ['provider-a', 'provider-b']) {
-    const effectiveTools = providerTools[providerKey]!;
-    for (const tool of ['tool_search', 'tool_describe', 'tool_call']) assert(effectiveTools.includes(tool), `${providerKey} model surface is missing constrained MCP discovery tool ${tool}: ${effectiveTools.join(', ')}`);
-    for (const forbidden of ['terminal', 'browser_navigate', 'web_search', 'write_file', 'execute_code', 'delegate_task', 'cronjob']) {
-      assert(!effectiveTools.includes(forbidden), `${providerKey} model surface exposed forbidden tool ${forbidden}.`);
-    }
-  }
   assert(providerRequests['provider-a']!.every((request) => !request.includes('fallback-beta')), `Fallback profile A contains profile B context: ${JSON.stringify(providerRequests)}`);
   assert(providerRequests['provider-b']!.every((request) => !request.includes('fallback-alpha')), `Fallback profile B contains profile A context: ${JSON.stringify(providerRequests)}`);
   assert(providerRequests['provider-a']!.length > 0 && providerRequests['provider-b']!.length > 0, 'Fallback did not use distinct provider credentials.');
@@ -251,7 +212,7 @@ try {
   const restartPorts = await Promise.all(profiles.map(() => reservePort()));
   for (let index = 0; index < profiles.length; index += 1) {
     const profile = profiles[index]!;
-    await writeFile(join(home, 'profiles', profile, 'config.yaml'), configYaml(false, true, restartPorts[index]!, join(home, 'profiles', profile, 'apt-shared-skills')), 'utf8');
+    await writeFile(join(home, 'profiles', profile, 'config.yaml'), configYaml(false, true, restartPorts[index]!), 'utf8');
     activeUrls[profile] = `http://127.0.0.1:${restartPorts[index]!}`;
   }
   gateways = await Promise.all(profiles.map((profile, index) => startGateway(home, restartPorts[index]!, profile)));
@@ -261,12 +222,10 @@ try {
 
   const report = {
     hermesVersion: version,
-    sharedTopology: { result: sharedProviderIsolation && sharedMcpDiscovery ? 'pass' : 'fail', reason: sharedProviderIsolation && sharedMcpDiscovery ? null : 'shared multiplexing failed the per-profile provider credential and/or Apt MCP discovery boundary' },
+    sharedTopology: { result: sharedProviderIsolation ? 'pass' : 'fail', reason: sharedProviderIsolation ? null : 'custom provider credential resolved from profile A while serving profile B' },
     selectedTopology: 'per_profile', profiles: [...profiles], sequential: 'pass', concurrent: 'pass', historyIsolation: 'pass',
     providerContextIsolation: 'pass', stateDatabaseIsolation: 'pass', restartIsolation: 'pass', crossKeyDenial: 'pass',
-    soulIsolation: 'pass', hotUserMemoryLimits: { userChars: 1375, memoryChars: 2200, result: 'pass' },
-    aptOnlySkills: 'pass', aptBridgeDiscovery: 'pass', dangerousToolsDisabled: 'pass', arbitraryMcpDisabled: 'pass',
-    typedBridgeBoundary: 'covered-by-server-tests', stop: 'pass', testedAt: new Date().toISOString(),
+    bundledSkills: 'pass', dangerousToolsDisabled: 'pass', stop: 'pass', testedAt: new Date().toISOString(),
   };
   await writeFile('docs/hermes-capability-results.json', `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

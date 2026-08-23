@@ -484,13 +484,6 @@ export class PostgresChatRepository implements ChatRepository {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
-      await client.query('delete from public.commerce_hunts where user_id = $1', [userId]);
-      await client.query('delete from public.claw_learning_events where user_id = $1', [userId]);
-      await client.query('delete from public.claw_learning_proposals where user_id = $1', [userId]);
-      await client.query('delete from public.claw_user_skills where user_id = $1', [userId]);
-      await client.query('delete from public.claw_user_knowledge where user_id = $1', [userId]);
-      await client.query('delete from public.claw_user_profiles where user_id = $1', [userId]);
-      await client.query('delete from public.claw_admins where user_id = $1', [userId]);
       await client.query('delete from public.agent_runs where user_id = $1', [userId]);
       await client.query('delete from public.messages where user_id = $1', [userId]);
       await client.query('delete from public.agent_instances where user_id = $1', [userId]);
