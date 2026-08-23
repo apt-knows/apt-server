@@ -13,6 +13,7 @@ import type {
   ClawDocument,
   ClawTurnBundle,
   ForegroundLocation,
+  ProductCandidate,
 } from '../src/claw/domain.js';
 import { boundRecentMessages, type ClawRepository } from '../src/claw/repository.js';
 import { ClawService } from '../src/claw/service.js';
@@ -41,6 +42,29 @@ function bundle(privateFact = 'private-fact'): ClawTurnBundle {
     profile: { soulText: '', hotUserText: '', hotMemoryText: '', revision: '1', knowledgeRevision: '0', runtimeHash: null },
     knowledge: [{ id: 'fact', subjectKind: 'self', subjectLabel: null, category: 'preference', fact: privateFact, confidence: 0.9, learnedAt: '2026-08-22T00:00:00.000Z' }],
     privateSkills: [], previousHunts: [], conversationHistory: [{ role: 'user', content: 'hello' }],
+  };
+}
+
+function candidate(): ProductCandidate {
+  return {
+    candidate_id: 'candidate-1',
+    vertical: 'retail',
+    item_name: 'Everyday shoe',
+    merchant_name: 'Example Merchant',
+    canonical_url: 'https://merchant.example/items/1',
+    variant_or_size: '10',
+    current_price: 79,
+    currency: 'USD',
+    price_qualifier: null,
+    availability: 'In stock',
+    fulfillment_or_store_context: 'Pickup available',
+    source_url: 'https://merchant.example/items/1/source',
+    observed_at: '2026-08-23T00:00:00.000Z',
+    verification_status: 'verified',
+    image_url: null,
+    matched_constraints: ['size 10'],
+    tradeoffs: [],
+    personalization_reasons: ['Matches a private preference without exposing it'],
   };
 }
 
@@ -160,6 +184,42 @@ describe('Claw service tool binding', () => {
     service.cancelRun(context.runId);
     await expect(hunt).rejects.toThrow('aborted');
     expect(statuses).toEqual(['cancelled']);
+  });
+
+  it('passes point-of-need location only to commerce retrieval and never Hunt persistence', async () => {
+    const saved: unknown[] = [];
+    const repository = fakeRepository([]);
+    repository.saveHunt = async (input) => { saved.push(input); };
+    const commerce = { search: vi.fn(async () => [candidate()]) };
+    const service = new ClawService(repository, commerce);
+    const location = {
+      latitude: 40.7,
+      longitude: -74,
+      accuracy: 25,
+      capturedAt: '2026-08-23T00:00:00.000Z',
+    };
+    const context = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      runId: '33333333-3333-4333-8333-333333333333',
+      requestMessageId: '44444444-4444-4444-8444-444444444444',
+      location,
+    };
+
+    await expect(service.invoke(context, 'apt_commerce_hunt', {
+      vertical: 'retail', goal: 'nearby shoes', constraints: { size: '10' },
+      location_required: true, result_limit: 5, query_hints: ['walking shoes'],
+    })).resolves.toEqual({ status: 'COMPLETED', candidates: [candidate()] });
+    expect(commerce.search).toHaveBeenCalledWith(expect.objectContaining({ vertical: 'retail' }), location, expect.any(AbortSignal));
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      category: 'retail',
+      query: { vertical: 'retail', goal: 'nearby shoes', query_hints: ['walking shoes'] },
+      constraints: { size: '10' },
+      sourceUrls: ['https://merchant.example/items/1/source', 'https://merchant.example/items/1'],
+      status: 'completed',
+    });
+    expect(JSON.stringify(saved[0])).not.toContain(String(location.latitude));
+    expect(JSON.stringify(saved[0])).not.toContain(String(location.longitude));
   });
 });
 
