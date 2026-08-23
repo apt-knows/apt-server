@@ -49,12 +49,29 @@ const configSchema = z.object({
   HERMES_PROVIDER_BASE_URL: z.url().optional(),
   HERMES_PROVIDER_KEY_ENV: z.string().regex(/^[A-Z][A-Z0-9_]*$/).default('OPENAI_API_KEY'),
   HERMES_PROVIDER_API_KEY: configuredValue,
+  APT_INTERNAL_URL: z.url().default('http://127.0.0.1:8787'),
+  COMMERCE_SEARCH_ENDPOINT: z.url().optional(),
+  COMMERCE_SEARCH_API_KEY: configuredValue.optional(),
 }).superRefine((value, context) => {
   if (value.HERMES_PROVIDER === 'custom' && !value.HERMES_PROVIDER_BASE_URL) {
     context.addIssue({
       code: 'custom',
       path: ['HERMES_PROVIDER_BASE_URL'],
       message: 'HERMES_PROVIDER_BASE_URL is required when HERMES_PROVIDER=custom.',
+    });
+  }
+  if (Boolean(value.COMMERCE_SEARCH_ENDPOINT) !== Boolean(value.COMMERCE_SEARCH_API_KEY)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['COMMERCE_SEARCH_ENDPOINT'],
+      message: 'COMMERCE_SEARCH_ENDPOINT and COMMERCE_SEARCH_API_KEY must be configured together.',
+    });
+  }
+  if (value.COMMERCE_SEARCH_ENDPOINT && new URL(value.COMMERCE_SEARCH_ENDPOINT).protocol !== 'https:') {
+    context.addIssue({
+      code: 'custom',
+      path: ['COMMERCE_SEARCH_ENDPOINT'],
+      message: 'COMMERCE_SEARCH_ENDPOINT must use HTTPS.',
     });
   }
 });
@@ -90,6 +107,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
       providerBaseUrl: parsed.HERMES_PROVIDER_BASE_URL,
       providerKeyEnv: parsed.HERMES_PROVIDER_KEY_ENV,
       providerApiKey: parsed.HERMES_PROVIDER_API_KEY,
+      internalUrl: parsed.APT_INTERNAL_URL.replace(/\/$/, ''),
+    },
+    commerce: {
+      endpoint: parsed.COMMERCE_SEARCH_ENDPOINT,
+      apiKey: parsed.COMMERCE_SEARCH_API_KEY,
     },
   } as const;
 }

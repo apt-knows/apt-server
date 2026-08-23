@@ -1,0 +1,72 @@
+# Claw beta operations
+
+## Security and ownership
+
+- Supabase is canonical for every live shared release and every private user artifact. Do not add live prompt or skill content to a repository.
+- Founder access is a UUID membership check in `public.claw_admins`. Email addresses and client-side route guards do not grant access.
+- The landing-page service-role key and Apt Server database/service keys are server-only. The mobile app receives only the Supabase URL, publishable key, and local Apt API URL.
+- One opaque Hermes profile, stable session, state database, provider credential, and gateway process belong to one Supabase user. Never enable multiplex mode.
+- Exact coordinates are foreground, point-of-need inputs. They are allowed only in the active in-memory run and provider request; never copy them into messages, knowledge, hunts, proposals, or logs.
+
+## Required operator inputs
+
+Before release 1 can be tested or published, an operator must provide:
+
+1. the Supabase Auth UUID for each authorized founder (Robel Kebede and Robel Bruk);
+2. an HTTPS commerce search endpoint and API key that return the documented typed candidate shape;
+3. server-only Supabase variables in the founder-console deployment;
+4. founder-reviewed release content authored through `/admin`;
+5. the agreed ten-profile fixtures and final iOS location permission copy.
+
+Set `COMMERCE_SEARCH_ENDPOINT` and `COMMERCE_SEARCH_API_KEY` only in the protected Apt Server environment. The adapter rejects HTTP, redirects, credentials in URLs, DNS/private/loopback/link-local destinations, responses over 2 MiB, invalid candidates, more than five candidates, and requests longer than 120 seconds.
+
+## Founder access
+
+After independently verifying the intended Auth UUID, grant access from a protected Apt Server checkout:
+
+```bash
+npm run grant-founder -- --user-id <founder-auth-uuid>
+```
+
+Revoke with an exact confirmation:
+
+```bash
+npm run revoke-founder -- --user-id <founder-auth-uuid> --confirm <same-founder-auth-uuid>
+```
+
+Then place `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` in the landing-page server environment. Visit `/admin`; authenticated UUIDs absent from `claw_admins` receive a 403 view and no private Claw data.
+
+## Release workflow
+
+1. Create a draft or clone a published release in `/admin`.
+2. Author the enabled core, Soul template, policy, `intent.retail`, `intent.grocery`, and `intent.food` documents. Shared skills require `SKILL.md` YAML frontmatter whose `name` equals the document key and whose `description` is non-empty.
+3. Enable exactly `memory`, `session_search`, `skills`, and `apt_bridge`. Other capability keys and other MCP servers are rejected in both application and database code.
+4. Review pending sanitized proposals; acceptance only changes the selected draft and never mutates a published release.
+5. Run Validate and inspect Diff. Add a meaningful publish note.
+6. Publish. A database advisory lock, expected revision, checksums, and one-published-release constraint make publish/archive atomic.
+7. Roll back by cloning a known published/archived version into a new version and publishing that clone. Published rows remain immutable audit evidence.
+
+No shared content is seeded by a migration. Release 1 remains founder-authored and founder-reviewed.
+
+## Verification and rollout
+
+Before applying a migration or changing Hermes:
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+HERMES_CLI=.local/hermes-v2026.8.19/bin/hermes npm run test:hermes-capability
+```
+
+Apply `supabase/migrations` through the Supabase migration workflow, then run both security and performance advisors. Confirm RLS is enabled and forced, `anon`/`authenticated` lack table/function access, and only `service_role` can execute founder RPCs.
+
+Provision or reconfigure each selected beta user, start the one-process-per-profile local stack, and run the live two-user harness. Run the ten-profile all-pairs isolation fixture before expanding the beta.
+
+Physical-device sign-off must record:
+
+- Robel Kebede’s iPhone UAT for ordinary Reply, retail/grocery/food Hunt, location allow/deny/stale fallback, learning continuity, stop, and release rollback;
+- Robel Bruk’s independent Mac/iPhone local-stack smoke test;
+- no cross-user USER/MEMORY/Soul/skill/knowledge/history/Hunt leakage across ten profiles;
+- release number/checksum and the relevant CI, migration, advisor, and PR links.
