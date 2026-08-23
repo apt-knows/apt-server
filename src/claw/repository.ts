@@ -101,6 +101,7 @@ export interface HuntPersistenceInput {
   category: PreviousHunt['category'];
   query: Record<string, unknown>;
   constraints: Record<string, unknown>;
+  coarseLocationLabel: string | null;
   candidates: ProductCandidate[];
   sourceUrls: string[];
   status: 'completed' | 'failed' | 'cancelled';
@@ -337,11 +338,12 @@ export class PostgresClawRepository implements ClawRepository {
     await this.pool.query(
       `insert into public.commerce_hunts
         (user_id, agent_run_id, request_message_id, category, status, query, constraints,
-         candidates, source_urls, completed_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+         coarse_location_label, candidates, source_urls, completed_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
        on conflict (agent_run_id) do nothing`,
       [input.userId, input.runId, input.requestMessageId, input.category, input.status,
-        input.query, input.constraints, JSON.stringify(input.candidates), JSON.stringify(input.sourceUrls)],
+        input.query, input.constraints, input.coarseLocationLabel,
+        JSON.stringify(input.candidates), JSON.stringify(input.sourceUrls)],
     );
     await this.pool.query(
       `update public.agent_runs set claw_mode = 'hunt' where id = $1 and user_id = $2`,

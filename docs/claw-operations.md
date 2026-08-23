@@ -6,19 +6,19 @@
 - Founder access is a UUID membership check in `public.claw_admins`. Email addresses and client-side route guards do not grant access.
 - The landing-page service-role key and Apt Server database/service keys are server-only. The mobile app receives only the Supabase URL, publishable key, and local Apt API URL.
 - One opaque Hermes profile, stable session, state database, provider credential, and gateway process belong to one Supabase user. Never enable multiplex mode.
-- Exact coordinates are foreground, point-of-need inputs. They are allowed only in the active in-memory run and provider request; never copy them into messages, knowledge, hunts, proposals, or logs.
+- Exact coordinates are foreground, point-of-need inputs. They are allowed only in the active mobile-to-server request and in-memory run; never copy them into Hermes instructions, browser tools, messages, knowledge, Hunts, proposals, or logs. The mobile app reverse-geocodes once and sends a bounded city/region/postal/country label for browser research; only that coarse label may be stored with a Hunt.
 
 ## Required operator inputs
 
 Before release 1 can be tested or published, an operator must provide:
 
-1. the Supabase Auth UUID for each authorized founder (Robel Kebede and Robel Bruk);
-2. an HTTPS commerce search endpoint and API key that return the documented typed candidate shape;
-3. server-only Supabase variables in the founder-console deployment;
+1. the independently verified Supabase Auth UUID for each authorized founder;
+2. server-only Supabase variables in the founder-console deployment;
+3. a Chromium-family browser usable by the pinned Hermes `agent-browser` runtime;
 4. founder-reviewed release content authored through `/admin`;
 5. the agreed ten-profile fixtures and final iOS location permission copy.
 
-Set `COMMERCE_SEARCH_ENDPOINT` and `COMMERCE_SEARCH_API_KEY` only in the protected Apt Server environment. The adapter rejects HTTP, redirects, credentials in URLs, DNS/private/loopback/link-local destinations, responses over 2 MiB, invalid candidates, more than five candidates, and requests longer than 120 seconds.
+There is no commerce-search endpoint or commerce API key. During a Hunt, Hermes launches its browser, uses `browser_navigate` to open a public search engine and relevant merchant/store sites, interacts with read-only search/filter/location flows, and inspects current result pages; the code-level instructions prohibit substituting an API-backed `web_search` call. It then calls `apt_commerce_hunt` with at most five typed candidates. Apt validates the candidate schema, vertical, freshness, public credential-free source URLs, DNS destinations, and coarse-location requirement before recording the Hunt. The browser boundary forbids authentication, accounts, contact/payment entry, terms acceptance, carts, checkout, purchases, orders, reservations, scheduling, merchant contact, and tracking.
 
 ## Founder access
 
@@ -40,7 +40,7 @@ Then place `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SERVICE_ROL
 
 1. Create a draft or clone a published release in `/admin`.
 2. Author the enabled core, Soul template, policy, `intent.retail`, `intent.grocery`, and `intent.food` documents. Shared skills require `SKILL.md` YAML frontmatter whose `name` equals the document key and whose `description` is non-empty.
-3. Enable exactly `memory`, `session_search`, `skills`, and `apt_bridge`. Other capability keys and other MCP servers are rejected in both application and database code.
+3. Enable exactly `memory`, `session_search`, `skills`, `browser`, and `apt_bridge`. Other capability keys and other MCP servers are rejected in both application and database code. The browser capability is restricted by the code-level read-only commerce-Hunt boundary.
 4. Review pending sanitized proposals; acceptance only changes the selected draft and never mutates a published release.
 5. Run Validate and inspect Diff. Add a meaningful publish note.
 6. Publish. A database advisory lock, expected revision, checksums, and one-published-release constraint make publish/archive atomic.
@@ -62,7 +62,7 @@ HERMES_CLI=.local/hermes-v2026.8.19/bin/hermes npm run test:hermes-capability
 ```
 
 `test:claw-db-live` uses a ready beta UUID to exercise founder authorization,
-revision conflicts, validation, publishing, compiler checksum parity,
+revision conflicts, the required browser capability, validation, publishing, compiler checksum parity,
 immutability, and clone-based rollback inside one database transaction. It
 rolls back the temporary founder and release rows before reporting success.
 

@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { productCandidateSchema } from './domain.js';
 
 const internalUrl = z.url().parse(process.env.APT_INTERNAL_URL).replace(/\/$/, '');
 const bridgeToken = z.string().min(32).parse(process.env.APT_BRIDGE_TOKEN);
@@ -43,11 +44,12 @@ registerTool('apt_propose_shared_change', 'Submit a sanitized shared change for 
 registerTool('apt_previous_hunts', 'Search only the current user’s previous commerce Hunts. Time-sensitive facts must be reverified.', {
   query: z.string().min(1).max(1_000), limit: z.number().int().min(1).max(10).default(5),
 }, { readOnlyHint: true });
-registerTool('apt_commerce_hunt', 'Retrieve current source-backed candidates for retail, grocery, or food only. This cannot purchase, cart, or track.', {
+registerTool('apt_commerce_hunt', 'After using browser tools for a retail, grocery, or food Hunt, validate and save only the current source-backed candidates actually observed. This tool does not search the web and cannot purchase, cart, order, or track.', {
   vertical: z.enum(['retail', 'grocery', 'food']), goal: z.string().min(1).max(1_000),
   constraints: z.record(z.string().max(64), z.union([z.string().max(500), z.number(), z.boolean(), z.array(z.string().max(200)).max(20)])).default({}),
   location_required: z.boolean().default(false), result_limit: z.number().int().min(1).max(5).default(5),
   query_hints: z.array(z.string().min(1).max(200)).max(5).default([]),
+  candidates: z.array(productCandidateSchema).max(5),
 });
 
 await server.connect(new StdioServerTransport());

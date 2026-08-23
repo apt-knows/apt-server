@@ -6,17 +6,13 @@ import { PostgresChatRepository } from './repository.js';
 import { ClawMaterializer } from './claw/materializer.js';
 import { PostgresClawRepository } from './claw/repository.js';
 import { ClawService } from './claw/service.js';
-import { HttpCommerceSearchAdapter, MissingCommerceSearchAdapter } from './claw/commerce.js';
 import { ClawAgentRuntime } from './claw/runtime.js';
 
 const config = loadConfig();
 const repository = PostgresChatRepository.create(config.supabase.databaseUrl, config.supabase.databaseSsl);
 const auth = SupabaseAuthService.create(config.supabase.url, config.supabase.publishableKey);
 const clawRepository = PostgresClawRepository.create(config.supabase.databaseUrl, config.supabase.databaseSsl);
-const commerce = config.commerce.endpoint && config.commerce.apiKey
-  ? new HttpCommerceSearchAdapter(config.commerce.endpoint, config.commerce.apiKey)
-  : new MissingCommerceSearchAdapter();
-const clawService = new ClawService(clawRepository, commerce);
+const clawService = new ClawService(clawRepository);
 const runtime = new ClawAgentRuntime(
   new HermesAgentRuntime(config.hermes),
   clawService,

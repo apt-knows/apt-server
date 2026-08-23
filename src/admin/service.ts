@@ -88,8 +88,13 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
       ['model.default', this.config.model],
       ['model.provider', this.config.provider],
       ['model.api_key', `\${${this.config.providerKeyEnv}}`],
-      ['platform_toolsets.api_server', '["memory","session_search","skills"]'],
-      ['agent.disabled_toolsets', '["web","browser","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","todo","context_engine","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
+      ['platform_toolsets.api_server', '["memory","session_search","skills","browser"]'],
+      ['agent.disabled_toolsets', '["web","search","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","todo","context_engine","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
+      ['browser.backend', '"off"'],
+      ['browser.allow_private_urls', 'false'],
+      ['browser.restrict_evaluate', 'true'],
+      ['security.website_blocklist.enabled', 'true'],
+      ['security.website_blocklist.domains', '["localhost","local","0.0.0.0","127.0.0.1","::1","metadata.google.internal"]'],
       ['memory.memory_enabled', 'true'],
       ['memory.user_profile_enabled', 'true'],
       ['memory.write_approval', 'false'],
@@ -120,6 +125,11 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
     await this.upsertSecret(profileName, 'API_SERVER_KEY', hermesApiKey(profileName, this.config.keySecret));
     await this.upsertSecret(profileName, 'APT_INTERNAL_URL', this.config.internalUrl);
     await this.upsertSecret(profileName, 'APT_BRIDGE_TOKEN', aptBridgeToken(profileName, this.config.keySecret));
+    const browserExecutable = this.config.browserExecutablePath ?? await optionalFirstAccessible([
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ]);
+    if (browserExecutable) await this.upsertSecret(profileName, 'AGENT_BROWSER_EXECUTABLE_PATH', browserExecutable);
     await this.run(['--profile', profileName, 'config', 'check']);
     await this.run(['--profile', profileName, 'mcp', 'test', 'apt']);
   }
@@ -154,11 +164,23 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
       await skills.json();
       const toolRows = rows(await toolsets.json(), 'toolsets') as Array<{ name?: string; key?: string; enabled?: boolean; tools?: unknown[] }>;
       const enabledToolsets = new Set(toolRows.filter((row) => row.enabled).map((row) => row.key ?? row.name).filter(Boolean));
-      for (const required of ['memory', 'session_search', 'skills']) {
+      for (const required of ['memory', 'session_search', 'skills', 'browser']) {
         if (!enabledToolsets.has(required)) throw new Error(`Hermes profile is missing required ${required} toolset.`);
       }
-      const forbidden = [...enabledToolsets].filter((key) => !['memory', 'session_search', 'skills'].includes(String(key)));
+      const forbidden = [...enabledToolsets].filter((key) => !['memory', 'session_search', 'skills', 'browser'].includes(String(key)));
       if (forbidden.length) throw new Error(`Hermes API server exposes forbidden toolsets: ${forbidden.join(', ')}.`);
+      const browserRow = toolRows.find((row) => (row.key ?? row.name) === 'browser');
+      const browserTools = new Set((browserRow?.tools ?? []).map((tool) => {
+        if (typeof tool === 'string') return tool;
+        if (tool && typeof tool === 'object') {
+          const record = tool as { name?: unknown; key?: unknown };
+          return typeof record.name === 'string' ? record.name : typeof record.key === 'string' ? record.key : '';
+        }
+        return '';
+      }));
+      for (const required of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press']) {
+        if (!browserTools.has(required)) throw new Error(`Hermes browser toolset is missing required Hunt primitive ${required}.`);
+      }
 
       const submitted = await request('/v1/runs', {
         method: 'POST',
@@ -211,6 +233,10 @@ async function firstAccessible(paths: string[]) {
     try { await access(path); return path; } catch { /* try compiled/source counterpart */ }
   }
   throw new Error('Apt Claw bridge entrypoint is missing.');
+}
+
+async function optionalFirstAccessible(paths: string[]) {
+  try { return await firstAccessible(paths); } catch { return null; }
 }
 
 export class ProvisioningService {

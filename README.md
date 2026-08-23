@@ -10,7 +10,7 @@ Private messaging backend for Apt’s 10-user beta. The mobile app authenticates
 - There is one user-visible thread, one active run per user, and one stable Hermes session per user.
 - Before each Runs API submission, the server compiles the currently published Claw release with that user’s private profile, relevant knowledge, previous Hunts, and whole recent messages bounded to 48,000 characters.
 - The selected Hermes topology is `per_profile`; see [the Phase 0 result](docs/hermes-capability.md).
-- Hermes profiles contain no bundled skills. They expose only memory, session search, private `private.*` skills, read-only published Apt skills, and the six typed Apt bridge tools.
+- Hermes profiles contain no bundled skills. They expose only memory, session search, bounded browser automation for read-only commerce Hunts, private `private.*` skills, read-only published Apt skills, and the six typed Apt bridge tools.
 - Live shared prompts, policies, skills, merchant guidance, and capabilities live only in immutable Supabase releases. This repository contains their compiler and allowlist, not production content.
 
 ## Development
@@ -47,7 +47,7 @@ The launcher discovers ready beta mappings, bootstraps pinned Hermes when needed
 | `GET` | `/v1/chat/runs/:runId/events` | Sanitized SSE: snapshot, assistant delta, and terminal events only |
 | `POST` | `/v1/chat/runs/:runId/stop` | Mark stopping and interrupt Hermes when a Hermes run exists |
 
-Message bodies are `{ "clientMessageId": "<uuid>", "content": "...", "location"?: { ... } }`. Content is normalized and limited to 8,000 characters. Optional coordinates must be foreground-only, accurate to 1,000 meters, and no older than five minutes; they remain in memory for the active run and are never written to the database or logs. Reusing the same client message ID for the same user returns the original turn; a second active turn returns `RUN_IN_PROGRESS`.
+Message bodies are `{ "clientMessageId": "<uuid>", "content": "...", "location"?: { "latitude": 0, "longitude": 0, "accuracy": 0, "capturedAt": "...", "coarseLabel": "city, region, postal code, country" } }`. Content is normalized and limited to 8,000 characters. Optional coordinates must be foreground-only, accurate to 1,000 meters, and no older than five minutes. Exact coordinates remain in Apt Server memory for the active run and never enter Hermes, browser tools, messages, Hunts, or logs; only the mobile-derived coarse label may be used for browser research and saved with a Hunt. Reusing the same client message ID for the same user returns the original turn; a second active turn returns `RUN_IN_PROGRESS`.
 
 Stable error response:
 
@@ -94,9 +94,9 @@ For local host processes on distinct ports, set `HERMES_PROFILE_URL_MAP` to a JS
 HERMES_CLI=/path/to/hermes HERMES_VERSION=v2026.8.19 npm run test:hermes-capability
 ```
 
-The harness creates two fresh profiles and a deterministic OpenAI-compatible provider, then verifies sequential/concurrent turns, provider context and credential separation, session/history/state isolation, restart isolation, cross-key denial, Apt-only skills, exact Apt bridge discovery, zero enabled dangerous tools, and stop behavior. It writes [the audit result](docs/hermes-capability-results.json).
+The harness creates two fresh profiles and a deterministic OpenAI-compatible provider, then verifies sequential/concurrent turns, provider context and credential separation, session/history/state isolation, restart isolation, cross-key denial, Apt-only skills, exact Apt bridge discovery, the required browser navigation primitives, disabled transactional/dangerous tools, and stop behavior. It writes [the audit result](docs/hermes-capability-results.json).
 
-Founder release authoring, provider setup, migration checks, rollout, rollback, and physical-iPhone UAT are documented in [the Claw operations guide](docs/claw-operations.md).
+Founder release authoring, browser setup, migration checks, rollout, rollback, and physical-iPhone UAT are documented in [the Claw operations guide](docs/claw-operations.md).
 
 With Apt Server and two provisioned per-profile gateways already running, the live harness creates short-lived Supabase sessions without sending email and exercises the public API against the real database and provider:
 

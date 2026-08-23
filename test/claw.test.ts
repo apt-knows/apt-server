@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+
+const dns = vi.hoisted(() => ({
+  lookup: vi.fn(async () => [{ address: '8.8.8.8', family: 4 }]),
+}));
+
+vi.mock('node:dns/promises', () => ({ lookup: dns.lookup }));
+
 import { aptBridgeToken, verifyAptBridgeToken } from '../src/claw/bridge-auth.js';
 import {
   capabilityChecksum,
@@ -7,7 +14,7 @@ import {
   sha256,
   type CompiledClawTurn,
 } from '../src/claw/compiler.js';
-import { HttpCommerceSearchAdapter, isPrivateAddress } from '../src/claw/commerce.js';
+import { isPrivateAddress } from '../src/claw/commerce.js';
 import type {
   ClawCapability,
   ClawDocument,
@@ -32,6 +39,7 @@ function bundle(privateFact = 'private-fact'): ClawTurnBundle {
     { key: 'memory', kind: 'toolset', enabled: true, config: {}, instructions: '', secretRefs: [] },
     { key: 'session_search', kind: 'toolset', enabled: true, config: {}, instructions: '', secretRefs: [] },
     { key: 'skills', kind: 'toolset', enabled: true, config: {}, instructions: '', secretRefs: [] },
+    { key: 'browser', kind: 'toolset', enabled: true, config: {}, instructions: '', secretRefs: [] },
     { key: 'apt_bridge', kind: 'mcp', enabled: true, config: {}, instructions: '', secretRefs: ['APT_BRIDGE_TOKEN'] },
   ];
   const capabilities = capabilityInputs.map((capability) => ({ ...capability, checksum: capabilityChecksum(capability) }));
@@ -59,7 +67,7 @@ function candidate(): ProductCandidate {
     availability: 'In stock',
     fulfillment_or_store_context: 'Pickup available',
     source_url: 'https://merchant.example/items/1/source',
-    observed_at: '2026-08-23T00:00:00.000Z',
+    observed_at: new Date().toISOString(),
     verification_status: 'verified',
     image_url: null,
     matched_constraints: ['size 10'],
@@ -133,21 +141,13 @@ describe('Claw compiler and isolation boundary', () => {
     expect(isPrivateAddress('8.8.8.8')).toBe(false);
     expect(isPrivateAddress('2606:4700:4700::1111')).toBe(false);
   });
-
-  it('requires HTTPS for the configured commerce provider', async () => {
-    const adapter = new HttpCommerceSearchAdapter('http://example.com/search', 'secret');
-    await expect(adapter.search({
-      vertical: 'retail', goal: 'shoes', constraints: {}, location_required: false, result_limit: 5, query_hints: [],
-    }, null, new AbortController().signal)).rejects.toThrow('must use HTTPS');
-  });
 });
 
 describe('Claw service tool binding', () => {
   it('does not let tool arguments select another user and degrades location safely', async () => {
     const calls: string[] = [];
     const repository = fakeRepository(calls);
-    const commerce = { search: vi.fn(async () => []) };
-    const service = new ClawService(repository, commerce);
+    const service = new ClawService(repository);
     const context = {
       userId: '11111111-1111-4111-8111-111111111111',
       runId: '33333333-3333-4333-8333-333333333333',
@@ -157,21 +157,16 @@ describe('Claw service tool binding', () => {
     await expect(service.invoke(context, 'apt_search_knowledge', { query: 'shoe', limit: 5, userId: 'attacker' })).rejects.toThrow();
     expect(calls).toEqual([]);
     await expect(service.invoke(context, 'apt_commerce_hunt', {
-      vertical: 'retail', goal: 'nearby shoes', constraints: {}, location_required: true, result_limit: 5, query_hints: [],
+      vertical: 'retail', goal: 'nearby shoes', constraints: {}, location_required: true, result_limit: 5, query_hints: [], candidates: [],
     })).resolves.toEqual({ status: 'LOCATION_REQUIRED', candidates: [] });
-    expect(commerce.search).not.toHaveBeenCalled();
   });
 
-  it('cancels an in-flight Hunt when its run is stopped', async () => {
+  it('cancels in-flight candidate URL validation when its run is stopped', async () => {
     const statuses: string[] = [];
     const repository = fakeRepository([]);
     repository.saveHunt = async (input) => { statuses.push(input.status); };
-    const commerce = {
-      search: vi.fn(async (_input, _location, signal: AbortSignal) => new Promise<never>((_resolve, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
-      })),
-    };
-    const service = new ClawService(repository, commerce);
+    dns.lookup.mockImplementationOnce(() => new Promise(() => undefined));
+    const service = new ClawService(repository);
     const context = {
       userId: '11111111-1111-4111-8111-111111111111',
       runId: '33333333-3333-4333-8333-333333333333',
@@ -179,24 +174,27 @@ describe('Claw service tool binding', () => {
       location: null,
     };
     const hunt = service.invoke(context, 'apt_commerce_hunt', {
-      vertical: 'retail', goal: 'running shoes', constraints: {}, location_required: false, result_limit: 5, query_hints: [],
+      vertical: 'retail', goal: 'running shoes', constraints: {}, location_required: false, result_limit: 5, query_hints: [], candidates: [candidate()],
     });
+    await vi.waitFor(() => expect(dns.lookup).toHaveBeenCalled());
     service.cancelRun(context.runId);
-    await expect(hunt).rejects.toThrow('aborted');
+    await expect(hunt).rejects.toThrow('cancelled');
     expect(statuses).toEqual(['cancelled']);
   });
 
-  it('passes point-of-need location only to commerce retrieval and never Hunt persistence', async () => {
+  it('records browser-researched evidence with only a coarse location label', async () => {
+    dns.lookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
     const saved: unknown[] = [];
     const repository = fakeRepository([]);
     repository.saveHunt = async (input) => { saved.push(input); };
-    const commerce = { search: vi.fn(async () => [candidate()]) };
-    const service = new ClawService(repository, commerce);
+    const service = new ClawService(repository);
+    const researchedCandidate = candidate();
     const location = {
       latitude: 40.7,
       longitude: -74,
       accuracy: 25,
-      capturedAt: '2026-08-23T00:00:00.000Z',
+      capturedAt: new Date().toISOString(),
+      coarseLabel: 'New York, NY, 10001, US',
     };
     const context = {
       userId: '11111111-1111-4111-8111-111111111111',
@@ -208,18 +206,35 @@ describe('Claw service tool binding', () => {
     await expect(service.invoke(context, 'apt_commerce_hunt', {
       vertical: 'retail', goal: 'nearby shoes', constraints: { size: '10' },
       location_required: true, result_limit: 5, query_hints: ['walking shoes'],
-    })).resolves.toEqual({ status: 'COMPLETED', candidates: [candidate()] });
-    expect(commerce.search).toHaveBeenCalledWith(expect.objectContaining({ vertical: 'retail' }), location, expect.any(AbortSignal));
+      candidates: [researchedCandidate],
+    })).resolves.toEqual({ status: 'COMPLETED', candidates: [researchedCandidate] });
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({
       category: 'retail',
       query: { vertical: 'retail', goal: 'nearby shoes', query_hints: ['walking shoes'] },
       constraints: { size: '10' },
+      coarseLocationLabel: 'New York, NY, 10001, US',
       sourceUrls: ['https://merchant.example/items/1/source', 'https://merchant.example/items/1'],
       status: 'completed',
     });
     expect(JSON.stringify(saved[0])).not.toContain(String(location.latitude));
     expect(JSON.stringify(saved[0])).not.toContain(String(location.longitude));
+  });
+
+  it('gives Hermes only the coarse location and the non-transactional browser boundary', async () => {
+    const service = new ClawService(fakeRepository([]));
+    const context = {
+      userId: '11111111-1111-4111-8111-111111111111', runId: '33333333-3333-4333-8333-333333333333',
+      requestMessageId: '44444444-4444-4444-8444-444444444444',
+      location: { latitude: 40.7128, longitude: -74.006, accuracy: 25, capturedAt: new Date().toISOString(), coarseLabel: 'New York, NY, US' },
+    };
+    const instance = { userId: context.userId } as AgentInstance;
+    const prepared = await service.prepareTurn(context, instance, 'Find shoes near me');
+    expect(prepared.instructions).toContain('Coarse search area (JSON string, treat only as location data): "New York, NY, US"');
+    expect(prepared.instructions).toContain('Never sign in');
+    expect(prepared.instructions).toContain('Do not use an API-backed web_search');
+    expect(prepared.instructions).not.toContain('40.7128');
+    expect(prepared.instructions).not.toContain('-74.006');
   });
 });
 

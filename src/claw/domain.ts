@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CLAW_ALLOWED_CAPABILITIES = ['memory', 'session_search', 'skills', 'apt_bridge'] as const;
+export const CLAW_ALLOWED_CAPABILITIES = ['memory', 'session_search', 'skills', 'browser', 'apt_bridge'] as const;
 export const CLAW_HISTORY_BUDGET_DEFAULT = 48_000;
 export const CLAW_LOCATION_MAX_AGE_MS = 5 * 60 * 1_000;
 export const CLAW_LOCATION_MAX_ACCURACY_METERS = 1_000;
@@ -10,6 +10,7 @@ export const foregroundLocationSchema = z.object({
   longitude: z.number().finite().min(-180).max(180),
   accuracy: z.number().finite().positive().max(CLAW_LOCATION_MAX_ACCURACY_METERS),
   capturedAt: z.iso.datetime({ offset: true }),
+  coarseLabel: z.string().trim().min(1).max(160).regex(/^[^\r\n]+$/),
 }).strict();
 
 export type ForegroundLocation = z.infer<typeof foregroundLocationSchema>;
@@ -59,6 +60,26 @@ export const commerceHuntInputSchema = z.object({
 }).strict();
 
 export type CommerceHuntInput = z.infer<typeof commerceHuntInputSchema>;
+
+export const commerceHuntRecordSchema = commerceHuntInputSchema.extend({
+  candidates: z.array(productCandidateSchema).max(5),
+}).superRefine((value, context) => {
+  if (value.candidates.length > value.result_limit) {
+    context.addIssue({ code: 'custom', path: ['candidates'], message: 'Candidate count exceeds result_limit.' });
+  }
+  const ids = new Set<string>();
+  value.candidates.forEach((candidate, index) => {
+    if (candidate.vertical !== value.vertical) {
+      context.addIssue({ code: 'custom', path: ['candidates', index, 'vertical'], message: 'Candidate vertical does not match the Hunt.' });
+    }
+    if (ids.has(candidate.candidate_id)) {
+      context.addIssue({ code: 'custom', path: ['candidates', index, 'candidate_id'], message: 'Candidate IDs must be unique.' });
+    }
+    ids.add(candidate.candidate_id);
+  });
+});
+
+export type CommerceHuntRecord = z.infer<typeof commerceHuntRecordSchema>;
 
 export interface ClawDocument {
   key: string;
@@ -134,4 +155,3 @@ export interface ClawTurnBundle {
   previousHunts: PreviousHunt[];
   conversationHistory: ConversationMessage[];
 }
-

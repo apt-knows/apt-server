@@ -13,8 +13,9 @@ The required fallback—one Hermes process/container per profile—passed:
 - wrong-key and cross-profile-key denial;
 - zero bundled skills and only the generated `private.*` plus read-only Apt shared skill namespaces;
 - exact discovery of the six allowlisted Apt MCP tools through Hermes’ MCP health command;
-- only `memory`, `session_search`, `skills`, and Hermes’ constrained dynamic MCP discovery/call tools on the model surface;
-- dangerous native tools and arbitrary MCP servers absent;
+- only `memory`, `session_search`, `skills`, the required browser navigation/click/type primitives, and Hermes’ constrained dynamic MCP discovery/call tools on the model surface;
+- an external headless-browser navigation, accessibility snapshot, link click, and resulting cross-site navigation;
+- terminal, filesystem, code execution, delegation, cron, and arbitrary MCP servers absent;
 - run stop settling as cancelled.
 
 Therefore production must set `HERMES_TOPOLOGY=per_profile`. Re-run `npm run test:hermes-capability` before any Hermes upgrade or topology change. The JSON result is the machine-readable audit artifact; the test harness uses no production model credentials or user data.

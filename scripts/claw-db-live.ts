@@ -117,6 +117,21 @@ try {
   }
   assert.equal(revision, 11);
 
+  await expectSqlState('missing_browser_capability', '23514', () => client.query(
+    `select * from public.claw_publish_release($1, $2, $3, $4)`,
+    [release.id, founderId, revision, 'Browser capability must be required'],
+  ));
+  const browserCapability: Omit<ClawCapability, 'checksum'> = {
+    key: 'browser', kind: 'toolset', enabled: true, config: {}, instructions: '', secretRefs: [],
+  };
+  const savedBrowser = await client.query<ReleaseRow>(
+    `select * from public.claw_save_capability($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [founderId, release.id, revision, browserCapability.key, browserCapability.kind, browserCapability.enabled,
+      browserCapability.config, browserCapability.instructions, browserCapability.secretRefs, capabilityChecksum(browserCapability)],
+  );
+  revision = Number(savedBrowser.rows[0]?.revision);
+  assert.equal(revision, 12);
+
   await expectSqlState('stale_revision', '40001', () => client.query(
     `select * from public.claw_save_document($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [founderId, release.id, revision - 1, 'core.identity', 'core', 'Core identity',
@@ -204,6 +219,7 @@ try {
       founderAuthorization: true,
       optimisticRevision: true,
       requiredPublishNote: true,
+      browserCapabilityRequired: true,
       validationAndPublish: true,
       compilerChecksumParity: true,
       publishedImmutability: true,

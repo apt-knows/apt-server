@@ -70,6 +70,7 @@ describe('chat API', () => {
           longitude: -74,
           accuracy: 2_000,
           capturedAt: new Date().toISOString(),
+          coarseLabel: 'New York, NY, US',
         },
       },
     });
