@@ -66,6 +66,14 @@ revision conflicts, the required browser capability, validation, publishing, com
 immutability, and clone-based rollback inside one database transaction. It
 rolls back the temporary founder and release rows before reporting success.
 
+After a cofounder publishes Release 1 and the local stack is healthy, run the public-API smoke with the opt-in browser Hunt check:
+
+```bash
+npm run test:e2e-live -- --user-a <founder-a-uuid> --user-b <founder-b-uuid> --verify-hunt true
+```
+
+This intentionally creates beta chat/run rows and one real read-only Hunt. It compares the Hermes session trace before and after the Hunt, requiring `browser_navigate`, `browser_snapshot`, and at least one browser click/type/press while rejecting `web_search`. It also requires one to five current retail candidates, a persisted source link in the response, only the coarse location label, and no exact test coordinates in the response or Hunt record. Run it only after founder publication; unlike `test:claw-db-live`, it is not rolled back.
+
 Apply `supabase/migrations` through the Supabase migration workflow, then run both security and performance advisors. Confirm RLS is enabled and forced, `anon`/`authenticated` lack table/function access, and only `service_role` can execute founder RPCs.
 
 Provision or reconfigure each selected beta user, start the one-process-per-profile local stack, and run the live two-user harness. Run the ten-profile all-pairs isolation fixture before expanding the beta.
