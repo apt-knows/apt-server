@@ -1,0 +1,7 @@
+name: apt-hunt-browser-policy
+version: 1.0.0
+description: Removes API-backed web search from Apt browser-Hunt profiles.
+provides_tools:
+  - web_search
+capabilities:
+  - tools.override

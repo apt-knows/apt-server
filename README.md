@@ -10,7 +10,7 @@ Private messaging backend for Apt’s 10-user beta. The mobile app authenticates
 - There is one user-visible thread, one active run per user, and one stable Hermes session per user.
 - Before each Runs API submission, the server compiles the currently published Claw release with that user’s private profile, relevant knowledge, previous Hunts, and whole recent messages bounded to 48,000 characters.
 - The selected Hermes topology is `per_profile`; see [the Phase 0 result](docs/hermes-capability.md).
-- Hermes profiles contain no bundled skills. They expose only memory, session search, bounded browser automation for read-only commerce Hunts, private `private.*` skills, read-only published Apt skills, and the six typed Apt bridge tools.
+- Hermes profiles contain no bundled skills. They expose only memory, session search, bounded browser automation for read-only commerce Hunts, private `private.*` skills, read-only published Apt skills, and the six typed Apt bridge tools. An Apt-managed Hermes policy plugin removes the upstream browser toolset's API-backed `web_search` fallback from the model surface.
 - Live shared prompts, policies, skills, merchant guidance, and capabilities live only in immutable Supabase releases. This repository contains their compiler and allowlist, not production content.
 
 ## Development

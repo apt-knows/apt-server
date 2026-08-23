@@ -25,11 +25,12 @@ const activeUrls: Record<typeof profiles[number], string> = {
 let sharedMcpDiscovery = true;
 const bridgeEntry = join(process.cwd(), 'src', 'claw', 'bridge-server.ts');
 const tsxLoader = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'loader.mjs');
+const browserPolicyPlugin = join(process.cwd(), 'hermes-plugins', 'apt-hunt-browser-policy');
 const aptTools = ['apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact', 'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt'];
 let browserExecutablePath = process.env.AGENT_BROWSER_EXECUTABLE_PATH ?? '';
 
 function configYaml(multiplex: boolean, apiEnabled: boolean, port: number, sharedSkills = '') {
-  return `model:\n  default: mock-model\n  provider: custom\n  base_url: http://127.0.0.1:${providerPort}/v1\n  api_key: \${MOCK_PROVIDER_KEY}\nplatform_toolsets:\n  api_server: [memory, session_search, skills, browser]\nagent:\n  disabled_toolsets: [web, search, terminal, file, code_execution, vision, video, image_gen, video_gen, bfl, x_search, tts, stt, todo, context_engine, clarify, delegation, cronjob, homeassistant, spotify, discord, discord_admin, yuanbao, computer_use]\nbrowser:\n  backend: \"off\"\n  allow_private_urls: false\n  restrict_evaluate: true\nsecurity:\n  website_blocklist:\n    enabled: true\n    domains: [localhost, local, 0.0.0.0, 127.0.0.1, \"::1\", metadata.google.internal]\nmemory:\n  memory_enabled: true\n  user_profile_enabled: true\n  write_approval: false\n  memory_char_limit: 2200\n  user_char_limit: 1375\nskills:\n  external_dirs: [${JSON.stringify(sharedSkills)}]\n  guard_agent_created: true\n  write_approval: false\nauxiliary:\n  background_review:\n    enabled: true\nmcp_servers:\n  apt:\n    command: ${JSON.stringify(process.execPath)}\n    args: [\"--import\", ${JSON.stringify(tsxLoader)}, ${JSON.stringify(bridgeEntry)}]\n    env:\n      APT_INTERNAL_URL: \"http://127.0.0.1:9\"\n      APT_BRIDGE_TOKEN: \"apt-capability-token-0123456789abcdef\"\n    tools:\n      include: [${aptTools.join(', ')}]\n    connect_timeout: 15\n    enabled: true\ngateway:\n  multiplex_profiles: ${multiplex}\n  multiplex_profile_allowlist: [${profiles.join(', ')}]\nplatforms:\n  api_server:\n    enabled: ${apiEnabled}\n    host: 127.0.0.1\n    port: ${port}\n    max_concurrent_runs: 10\n`;
+  return `model:\n  default: mock-model\n  provider: custom\n  base_url: http://127.0.0.1:${providerPort}/v1\n  api_key: \${MOCK_PROVIDER_KEY}\nplatform_toolsets:\n  api_server: [memory, session_search, skills, browser]\nagent:\n  disabled_toolsets: [web, search, terminal, file, code_execution, vision, video, image_gen, video_gen, bfl, x_search, tts, stt, todo, context_engine, clarify, delegation, cronjob, homeassistant, spotify, discord, discord_admin, yuanbao, computer_use]\nbrowser:\n  backend: \"off\"\n  allow_private_urls: false\n  restrict_evaluate: true\nsecurity:\n  website_blocklist:\n    enabled: true\n    domains: [localhost, local, 0.0.0.0, 127.0.0.1, \"::1\", metadata.google.internal]\nplugins:\n  enabled: [apt-hunt-browser-policy]\n  entries:\n    apt-hunt-browser-policy:\n      allow_tool_override: true\nmemory:\n  memory_enabled: true\n  user_profile_enabled: true\n  write_approval: false\n  memory_char_limit: 2200\n  user_char_limit: 1375\nskills:\n  external_dirs: [${JSON.stringify(sharedSkills)}]\n  guard_agent_created: true\n  write_approval: false\nauxiliary:\n  background_review:\n    enabled: true\nmcp_servers:\n  apt:\n    command: ${JSON.stringify(process.execPath)}\n    args: [\"--import\", ${JSON.stringify(tsxLoader)}, ${JSON.stringify(bridgeEntry)}]\n    env:\n      APT_INTERNAL_URL: \"http://127.0.0.1:9\"\n      APT_BRIDGE_TOKEN: \"apt-capability-token-0123456789abcdef\"\n    tools:\n      include: [${aptTools.join(', ')}]\n    connect_timeout: 15\n    enabled: true\ngateway:\n  multiplex_profiles: ${multiplex}\n  multiplex_profile_allowlist: [${profiles.join(', ')}]\nplatforms:\n  api_server:\n    enabled: ${apiEnabled}\n    host: 127.0.0.1\n    port: ${port}\n    max_concurrent_runs: 10\n`;
 }
 
 async function writeProfile(home: string, profile: typeof profiles[number]) {
@@ -38,6 +39,11 @@ async function writeProfile(home: string, profile: typeof profiles[number]) {
   await mkdir(join(directory, 'memories'), { recursive: true });
   await mkdir(join(directory, 'skills', 'private.capability'), { recursive: true });
   await mkdir(join(sharedSkills, 'apt-commerce-verification'), { recursive: true });
+  const pluginDestination = join(directory, 'plugins', 'apt-hunt-browser-policy');
+  await mkdir(pluginDestination, { recursive: true });
+  for (const name of ['plugin.yaml', '__init__.py']) {
+    await writeFile(join(pluginDestination, name), await readFile(join(browserPolicyPlugin, name)));
+  }
   await writeFile(join(directory, 'config.yaml'), configYaml(false, false, gatewayPort, sharedSkills), 'utf8');
   await writeFile(join(directory, '.env'), `API_SERVER_KEY=${profileKeys[profile]}\nMOCK_PROVIDER_KEY=${providerKeys[profile]}\n${browserExecutablePath ? `AGENT_BROWSER_EXECUTABLE_PATH=${browserExecutablePath}\n` : ''}`, { mode: 0o600 });
   await writeFile(join(directory, 'SOUL.md'), `Private Soul probe for ${profile}.\n`, 'utf8');
@@ -257,6 +263,7 @@ try {
     for (const tool of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press']) {
       assert(effectiveTools.includes(tool), `${providerKey} model surface is missing required Hunt browser tool ${tool}: ${effectiveTools.join(', ')}`);
     }
+    assert(!effectiveTools.includes('web_search'), `${providerKey} model surface exposed API-backed web_search.`);
     for (const forbidden of ['terminal', 'write_file', 'execute_code', 'delegate_task', 'cronjob']) {
       assert(!effectiveTools.includes(forbidden), `${providerKey} model surface exposed forbidden tool ${forbidden}.`);
     }
@@ -295,7 +302,7 @@ try {
     selectedTopology: 'per_profile', profiles: [...profiles], sequential: 'pass', concurrent: 'pass', historyIsolation: 'pass',
     providerContextIsolation: 'pass', stateDatabaseIsolation: 'pass', restartIsolation: 'pass', crossKeyDenial: 'pass',
     soulIsolation: 'pass', hotUserMemoryLimits: { userChars: 1375, memoryChars: 2200, result: 'pass' },
-    aptOnlySkills: 'pass', aptBridgeDiscovery: 'pass', browserHuntTools: 'pass', browserExternalInteraction: 'pass', dangerousToolsDisabled: 'pass', arbitraryMcpDisabled: 'pass',
+    aptOnlySkills: 'pass', aptBridgeDiscovery: 'pass', browserHuntTools: 'pass', apiBackedWebSearchDisabled: 'pass', browserExternalInteraction: 'pass', dangerousToolsDisabled: 'pass', arbitraryMcpDisabled: 'pass',
     typedBridgeBoundary: 'covered-by-server-tests', stop: 'pass', testedAt: new Date().toISOString(),
   };
   await writeFile('docs/hermes-capability-results.json', `${JSON.stringify(report, null, 2)}\n`, 'utf8');

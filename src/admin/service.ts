@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
@@ -84,6 +84,7 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
       'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
       'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
     ];
+    await this.installBrowserPolicy(profileName);
     const entries: [string, string][] = [
       ['model.default', this.config.model],
       ['model.provider', this.config.provider],
@@ -95,6 +96,8 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
       ['browser.restrict_evaluate', 'true'],
       ['security.website_blocklist.enabled', 'true'],
       ['security.website_blocklist.domains', '["localhost","local","0.0.0.0","127.0.0.1","::1","metadata.google.internal"]'],
+      ['plugins.enabled', '["apt-hunt-browser-policy"]'],
+      ['plugins.entries.apt-hunt-browser-policy.allow_tool_override', 'true'],
       ['memory.memory_enabled', 'true'],
       ['memory.user_profile_enabled', 'true'],
       ['memory.write_approval', 'false'],
@@ -212,6 +215,19 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
     next.push(`${key}=${value}`);
     await writeFile(path, `${next.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
     await chmod(path, 0o600);
+  }
+
+  private async installBrowserPolicy(profileName: string) {
+    const source = fileURLToPath(new URL('../../hermes-plugins/apt-hunt-browser-policy/', import.meta.url));
+    const destination = `${this.profileDir(profileName)}/plugins/apt-hunt-browser-policy`;
+    await mkdir(destination, { recursive: true, mode: 0o700 });
+    for (const name of ['plugin.yaml', '__init__.py']) {
+      const content = await readFile(`${source}/${name}`);
+      const temporary = `${destination}/${name}.next-${process.pid}`;
+      await writeFile(temporary, content, { mode: 0o600 });
+      await chmod(temporary, 0o600);
+      await rename(temporary, `${destination}/${name}`);
+    }
   }
 
   private async removeNonPrivateSkills(profileName: string) {

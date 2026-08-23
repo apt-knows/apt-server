@@ -25,10 +25,11 @@
   "aptOnlySkills": "pass",
   "aptBridgeDiscovery": "pass",
   "browserHuntTools": "pass",
+  "apiBackedWebSearchDisabled": "pass",
   "browserExternalInteraction": "pass",
   "dangerousToolsDisabled": "pass",
   "arbitraryMcpDisabled": "pass",
   "typedBridgeBoundary": "covered-by-server-tests",
   "stop": "pass",
-  "testedAt": "2026-08-23T03:14:09.364Z"
+  "testedAt": "2026-08-23T03:28:25.168Z"
 }
