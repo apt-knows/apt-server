@@ -57,8 +57,14 @@ npm ci
 npm run typecheck
 npm test
 npm run build
+npm run test:claw-db-live
 HERMES_CLI=.local/hermes-v2026.8.19/bin/hermes npm run test:hermes-capability
 ```
+
+`test:claw-db-live` uses a ready beta UUID to exercise founder authorization,
+revision conflicts, validation, publishing, compiler checksum parity,
+immutability, and clone-based rollback inside one database transaction. It
+rolls back the temporary founder and release rows before reporting success.
 
 Apply `supabase/migrations` through the Supabase migration workflow, then run both security and performance advisors. Confirm RLS is enabled and forced, `anon`/`authenticated` lack table/function access, and only `service_role` can execute founder RPCs.
 

@@ -97,13 +97,13 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const instance = await dependencies.repository.getAgentInstance(request.userId!);
     if (!instance) throw new AppError('AGENT_NOT_PROVISIONED', 'Apt chat has not been provisioned for this user.');
     if (instance.status === 'disabled') throw new AppError('AGENT_DISABLED', 'Apt chat is disabled for this user.');
-    const turn = await dependencies.repository.createTurn(request.userId!, body.clientMessageId, content);
     let location = body.location ?? null;
     if (location) {
       try { location = validateForegroundLocation(location); } catch {
         throw new AppError('INVALID_MESSAGE', 'Foreground location must be fresh, accurate, and within valid ranges.');
       }
     }
+    const turn = await dependencies.repository.createTurn(request.userId!, body.clientMessageId, content);
     manager.begin(request.userId!, instance, turn, location);
     return reply.status(turn.duplicate ? 200 : 202).send(turn);
   });

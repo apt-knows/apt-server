@@ -55,6 +55,29 @@ describe('chat API', () => {
     expect(createTurn).toHaveBeenCalledWith(USER_A, '77777777-7777-4777-8777-777777777777', 'hello\nworld');
   });
 
+  it('rejects an invalid foreground location before creating a database turn', async () => {
+    const createTurn = vi.fn(async () => (await import('./fixtures.js')).turn());
+    const { app } = await appWith({ createTurn });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/messages',
+      headers: { authorization: 'Bearer token-a' },
+      payload: {
+        clientMessageId: '77777777-7777-4777-8777-777777777777',
+        content: 'Find groceries nearby',
+        location: {
+          latitude: 40.7,
+          longitude: -74,
+          accuracy: 2_000,
+          capturedAt: new Date().toISOString(),
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('INVALID_MESSAGE');
+    expect(createTurn).not.toHaveBeenCalled();
+  });
+
   it('returns the original turn for an idempotent duplicate without starting Hermes again', async () => {
     const existing = { ...(await import('./fixtures.js')).turn(), duplicate: true };
     const createTurn = vi.fn(async () => existing);
