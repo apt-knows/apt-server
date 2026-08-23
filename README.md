@@ -8,9 +8,10 @@ Private messaging backend for Apt’s 10-user beta. The mobile app authenticates
 - Supabase Auth access tokens are required on every `/v1/chat/*` route. A `401` never falls back to an anonymous identity.
 - Mobile clients cannot read or write the three chat tables directly. RLS is forced, `anon`/`authenticated` grants are revoked, and only the private server database connection mutates transcripts.
 - There is one user-visible thread, one active run per user, and one stable Hermes session per user.
-- Before each Runs API submission, the server reloads the latest persisted Hermes session messages and supplies them as `conversation_history`; Hermes `v2026.8.19` records a Runs `session_id` but does not reload that transcript automatically.
+- Before each Runs API submission, the server compiles the currently published Claw release with that user’s private profile, relevant knowledge, previous Hunts, and whole recent messages bounded to 48,000 characters.
 - The selected Hermes topology is `per_profile`; see [the Phase 0 result](docs/hermes-capability.md).
-- No outcome classifier, Hunt/Claw orchestration, products, Apt-specific soul, generated skills, or automatic provisioning is part of this service.
+- Hermes profiles contain no bundled skills. They expose only memory, session search, private `private.*` skills, read-only published Apt skills, and the six typed Apt bridge tools.
+- Live shared prompts, policies, skills, merchant guidance, and capabilities live only in immutable Supabase releases. This repository contains their compiler and allowlist, not production content.
 
 ## Development
 
@@ -46,7 +47,7 @@ The launcher discovers ready beta mappings, bootstraps pinned Hermes when needed
 | `GET` | `/v1/chat/runs/:runId/events` | Sanitized SSE: snapshot, assistant delta, and terminal events only |
 | `POST` | `/v1/chat/runs/:runId/stop` | Mark stopping and interrupt Hermes when a Hermes run exists |
 
-Message bodies are `{ "clientMessageId": "<uuid>", "content": "..." }`. Content is normalized and limited to 8,000 characters. Reusing the same client message ID for the same user returns the original turn; a second active turn returns `RUN_IN_PROGRESS`.
+Message bodies are `{ "clientMessageId": "<uuid>", "content": "...", "location"?: { ... } }`. Content is normalized and limited to 8,000 characters. Optional coordinates must be foreground-only, accurate to 1,000 meters, and no older than five minutes; they remain in memory for the active run and are never written to the database or logs. Reusing the same client message ID for the same user returns the original turn; a second active turn returns `RUN_IN_PROGRESS`.
 
 Stable error response:
 
@@ -61,17 +62,22 @@ Migrations live under `supabase/migrations` and are already applied to the `aptk
 - `agent_instances`: Supabase user to opaque Hermes profile/session mapping.
 - `messages`: keyset-ordered user and assistant transcript with same-owner reply constraints.
 - `agent_runs`: request/response ownership constraints and a partial unique index permitting only one active run per user.
+- `claw_releases`, `claw_documents`, and `claw_capabilities`: immutable, checksummed shared releases with atomic publish/archive and clone-based rollback.
+- `claw_user_*` and `claw_learning_*`: server-only private profiles, FTS knowledge, private skills, audit events, and sanitized founder proposals.
+- `commerce_hunts`: private typed Hunt results and source provenance, with PostgreSQL full-text search.
 
 On startup, queued/running/stopping rows are failed with `SERVER_RESTARTED`; Hermes is stopped best-effort and no prompt is replayed.
 
 ## Manual beta lifecycle
 
-Provisioning is deliberately operator-only and idempotent. It validates the Supabase user, derives opaque stable identifiers, creates a Hermes profile with bundled skills, disables all model tools and MCP access, writes the provider secret with mode `0600`, validates Hermes config, then upserts the mapping.
+Provisioning is deliberately operator-only and idempotent. It validates the Supabase user, derives opaque stable identifiers, creates or reconfigures a Hermes profile without bundled skills, installs only the narrow tool/skill policy and profile-bound Apt bridge, writes secrets with mode `0600`, runs Hermes config/MCP/live-turn validation, then upserts the mapping.
 
 ```bash
 npm run provision-user -- --user-id <supabase-user-uuid>
 npm run disable-user -- --user-id <supabase-user-uuid>
 npm run delete-user -- --user-id <supabase-user-uuid> --confirm <same-supabase-user-uuid>
+npm run grant-founder -- --user-id <supabase-user-uuid>
+npm run revoke-founder -- --user-id <supabase-user-uuid> --confirm <same-supabase-user-uuid>
 ```
 
 Deletion removes the Hermes profile before database records. A failure leaves database ownership records intact so an operator can retry safely.
@@ -88,7 +94,9 @@ For local host processes on distinct ports, set `HERMES_PROFILE_URL_MAP` to a JS
 HERMES_CLI=/path/to/hermes HERMES_VERSION=v2026.8.19 npm run test:hermes-capability
 ```
 
-The harness creates two fresh profiles and a deterministic OpenAI-compatible provider, then verifies sequential/concurrent turns, provider context and credential separation, session/history/state isolation, restart isolation, cross-key denial, bundled skills, zero enabled dangerous tools, and stop behavior. It writes [the audit result](docs/hermes-capability-results.json).
+The harness creates two fresh profiles and a deterministic OpenAI-compatible provider, then verifies sequential/concurrent turns, provider context and credential separation, session/history/state isolation, restart isolation, cross-key denial, Apt-only skills, exact Apt bridge discovery, zero enabled dangerous tools, and stop behavior. It writes [the audit result](docs/hermes-capability-results.json).
+
+Founder release authoring, provider setup, migration checks, rollout, rollback, and physical-iPhone UAT are documented in [the Claw operations guide](docs/claw-operations.md).
 
 With Apt Server and two provisioned per-profile gateways already running, the live harness creates short-lived Supabase sessions without sending email and exercises the public API against the real database and provider:
 

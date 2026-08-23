@@ -2,7 +2,7 @@
 
 Tested release: `v2026.8.19` / Hermes Agent `0.20.5`.
 
-The shared multiplex listener was rejected for Apt’s beta. API-server bearer keys, session stores, and profile SQLite databases were isolated, but live custom-provider requests for profile B used profile A’s `MOCK_PROVIDER_KEY`. This crosses a required provider-credential boundary even though transcript rows remained profile-scoped.
+The shared multiplex listener was rejected for Apt’s beta. API-server bearer keys, session stores, and profile SQLite databases were isolated, but live custom-provider requests for profile B used profile A’s `MOCK_PROVIDER_KEY`. This crosses a required provider-credential boundary even though transcript rows remained profile-scoped. Shared multiplexing also does not expose the Apt MCP registration as a profile-bound API-server toolset.
 
 The required fallback—one Hermes process/container per profile—passed:
 
@@ -11,8 +11,10 @@ The required fallback—one Hermes process/container per profile—passed:
 - separate session APIs, histories, and `state.db` files;
 - clean restart with isolation retained;
 - wrong-key and cross-profile-key denial;
-- 81 bundled skills retained in each fresh profile;
-- no model tools or MCP servers exposed to the API-server surface;
+- zero bundled skills and only the generated `private.*` plus read-only Apt shared skill namespaces;
+- exact discovery of the six allowlisted Apt MCP tools through Hermes’ MCP health command;
+- only `memory`, `session_search`, `skills`, and Hermes’ constrained dynamic MCP discovery/call tools on the model surface;
+- dangerous native tools and arbitrary MCP servers absent;
 - run stop settling as cancelled.
 
 Therefore production must set `HERMES_TOPOLOGY=per_profile`. Re-run `npm run test:hermes-capability` before any Hermes upgrade or topology change. The JSON result is the machine-readable audit artifact; the test harness uses no production model credentials or user data.

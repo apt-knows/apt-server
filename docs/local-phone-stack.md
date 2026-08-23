@@ -46,7 +46,7 @@ For a persistent local selection, set a comma-separated value only in ignored `a
 APT_LOCAL_USER_IDS=<uuid-a>,<uuid-b>
 ```
 
-The command is safe to rerun. Provisioning returns an existing correct local profile immediately; if a profile is absent on a new Mac, it is recreated and validated before the stack starts.
+The command is safe to rerun. Provisioning re-applies the exact narrow tool/MCP policy, removes legacy non-private skill directories, validates the profile, and preserves its private artifacts; if a profile is absent on a new Mac, it is created and validated before the stack starts.
 
 ## Useful overrides
 

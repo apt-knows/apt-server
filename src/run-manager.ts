@@ -2,6 +2,8 @@ import type { AgentRuntime } from './agent-runtime.js';
 import type { AgentInstance, ChatRun, CreatedTurn, PublicRunEvent } from './domain.js';
 import { AppError } from './errors.js';
 import type { ChatRepository } from './repository.js';
+import type { ForegroundLocation } from './claw/domain.js';
+import type { ClawRunContext, ClawService, ClawToolName } from './claw/service.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -46,29 +48,41 @@ class RunChannel {
 export class RunManager {
   private readonly channels = new Map<string, RunChannel>();
   private readonly tasks = new Map<string, Promise<void>>();
+  private readonly activeContexts = new Map<string, { instance: AgentInstance; context: ClawRunContext }>();
 
   constructor(
     private readonly repository: ChatRepository,
     private readonly runtime: AgentRuntime,
     private readonly logger: { info(data: object, message: string): void; error(data: object, message: string): void },
+    private readonly clawService?: ClawService,
   ) {}
 
-  begin(userId: string, instance: AgentInstance, turn: CreatedTurn) {
+  begin(userId: string, instance: AgentInstance, turn: CreatedTurn, location: ForegroundLocation | null = null) {
     if (turn.duplicate || this.tasks.has(turn.run.id)) return;
     const channel = this.channel(turn.run.id);
-    const task = this.execute(userId, instance, turn, channel)
+    const context: ClawRunContext = {
+      userId,
+      runId: turn.run.id,
+      requestMessageId: turn.requestMessage.id,
+      location,
+    };
+    this.activeContexts.set(instance.hermesProfileName, { instance, context });
+    const task = this.execute(userId, instance, turn, channel, context)
       .catch((error: unknown) => {
         this.logger.error({ error, runId: turn.run.id, userId }, 'Run execution crashed');
       })
-      .finally(() => this.tasks.delete(turn.run.id));
+      .finally(() => {
+        this.tasks.delete(turn.run.id);
+        this.activeContexts.delete(instance.hermesProfileName);
+      });
     this.tasks.set(turn.run.id, task);
   }
 
-  private async execute(userId: string, instance: AgentInstance, turn: CreatedTurn, channel: RunChannel) {
+  private async execute(userId: string, instance: AgentInstance, turn: CreatedTurn, channel: RunChannel, context: ClawRunContext) {
     let accumulated = '';
     let lastPersistedAt = 0;
     try {
-      const submitted = await this.runtime.submit(instance, turn.requestMessage.content);
+      const submitted = await this.runtime.submit(instance, turn.requestMessage.content, { clawContext: context });
       const current = await this.repository.getRun(userId, turn.run.id);
       if (current.status === 'stopping') {
         await this.runtime.stop(instance, submitted.runId);
@@ -121,7 +135,19 @@ export class RunManager {
       this.logger.error({ error, runId: turn.run.id, userId }, 'Hermes run failed');
       const run = await this.repository.failRun(userId, turn.run.id, 'UPSTREAM_FAILED');
       channel.publish({ type: 'run.failed', run });
+    } finally {
+      this.clawService?.cancelRun(turn.run.id);
+      try { await this.runtime.reconcile?.(instance, context); } catch (error) {
+        this.logger.error({ error, runId: turn.run.id, userId }, 'Claw reconciliation failed');
+      }
     }
+  }
+
+  async invokeClawTool(profileName: string, tool: ClawToolName, argumentsValue: unknown) {
+    if (!this.clawService) throw new AppError('UPSTREAM_FAILED', 'Claw bridge is not configured.');
+    const active = this.activeContexts.get(profileName);
+    if (!active) throw new AppError('RUN_NOT_FOUND', 'No active run is bound to this Claw profile.');
+    return this.clawService.invoke(active.context, tool, argumentsValue);
   }
 
   async *events(userId: string, runId: string): AsyncIterable<PublicRunEvent> {
@@ -138,6 +164,7 @@ export class RunManager {
     if (!instance) throw new AppError('AGENT_NOT_PROVISIONED', 'Apt chat has not been provisioned for this user.');
     if (instance.status === 'disabled') throw new AppError('AGENT_DISABLED', 'Apt chat is disabled for this user.');
     const stopping = await this.repository.markRunStopping(userId, runId);
+    this.clawService?.cancelRun(runId);
     if (run.hermesRunId) await this.runtime.stop(instance, run.hermesRunId);
     return stopping;
   }

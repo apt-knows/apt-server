@@ -31,3 +31,25 @@ describe('Hermes provider configuration', () => {
     expect(config.hermes.providerBaseUrl).toBe('http://127.0.0.1:9999/v1');
   });
 });
+
+describe('commerce provider configuration', () => {
+  it('requires an HTTPS endpoint and API key together', () => {
+    expect(() => loadConfig({ ...required, COMMERCE_SEARCH_ENDPOINT: 'https://commerce.example/search' })).toThrow(
+      'must be configured together',
+    );
+    expect(() => loadConfig({
+      ...required,
+      COMMERCE_SEARCH_ENDPOINT: 'http://commerce.example/search',
+      COMMERCE_SEARCH_API_KEY: 'commerce-key',
+    })).toThrow('must use HTTPS');
+  });
+
+  it('accepts a complete HTTPS commerce provider', () => {
+    const config = loadConfig({
+      ...required,
+      COMMERCE_SEARCH_ENDPOINT: 'https://commerce.example/search',
+      COMMERCE_SEARCH_API_KEY: 'commerce-key',
+    });
+    expect(config.commerce.endpoint).toBe('https://commerce.example/search');
+  });
+});

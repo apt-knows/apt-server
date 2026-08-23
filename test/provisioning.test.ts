@@ -20,7 +20,7 @@ describe('manual provisioning lifecycle', () => {
     expect(first.sessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('is idempotent and retains bundled profile skills', async () => {
+  it('creates an Apt-only profile and validates its narrow capability set', async () => {
     const repo = repository({ getAgentInstance: vi.fn(async () => null) });
     const profiles = hermes(false);
     const service = new ProvisioningService(repo, { requireUser: vi.fn(async () => undefined) }, profiles, 's'.repeat(32));
@@ -31,7 +31,7 @@ describe('manual provisioning lifecycle', () => {
     expect(repo.upsertAgentInstance).toHaveBeenCalledOnce();
   });
 
-  it('returns an existing healthy mapping without adding another validation turn', async () => {
+  it('reconfigures an existing mapping idempotently without recreating it', async () => {
     const identity = profileIdentity(USER_A, 's'.repeat(32));
     const existing = { ...instance, hermesProfileName: identity.profileName, hermesSessionId: identity.sessionId };
     const repo = repository({ getAgentInstance: vi.fn(async () => existing) });
@@ -39,8 +39,8 @@ describe('manual provisioning lifecycle', () => {
     const service = new ProvisioningService(repo, { requireUser: vi.fn(async () => undefined) }, profiles, 's'.repeat(32));
     await expect(service.provision(USER_A)).resolves.toEqual(existing);
     expect(profiles.create).not.toHaveBeenCalled();
-    expect(profiles.configure).not.toHaveBeenCalled();
-    expect(profiles.validate).not.toHaveBeenCalled();
+    expect(profiles.configure).toHaveBeenCalledOnce();
+    expect(profiles.validate).toHaveBeenCalledOnce();
     expect(repo.upsertAgentInstance).not.toHaveBeenCalled();
   });
 
