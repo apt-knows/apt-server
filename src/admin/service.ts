@@ -103,10 +103,12 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
       ['memory.write_approval', 'false'],
       ['memory.memory_char_limit', '2200'],
       ['memory.user_char_limit', '1375'],
+      ['memory.nudge_interval', '0'],
       ['skills.external_dirs', JSON.stringify([sharedSkills])],
       ['skills.guard_agent_created', 'true'],
       ['skills.write_approval', 'false'],
-      ['auxiliary.background_review.enabled', 'true'],
+      ['skills.creation_nudge_interval', '0'],
+      ['auxiliary.background_review.enabled', 'false'],
       ['mcp_servers', JSON.stringify({
         apt: {
           command: process.execPath,

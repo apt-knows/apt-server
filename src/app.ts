@@ -7,7 +7,7 @@ import type { AppConfig } from './config.js';
 import { AppError, asAppError } from './errors.js';
 import type { ChatRepository } from './repository.js';
 import { RunManager } from './run-manager.js';
-import { foregroundLocationSchema, validateForegroundLocation } from './claw/domain.js';
+import { foregroundLocationSchema, shouldWithholdForegroundLocation, validateForegroundLocation } from './claw/domain.js';
 import { verifyAptBridgeToken } from './claw/bridge-auth.js';
 import type { ClawService, ClawToolName } from './claw/service.js';
 
@@ -98,7 +98,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!instance) throw new AppError('AGENT_NOT_PROVISIONED', 'Apt chat has not been provisioned for this user.');
     if (instance.status === 'disabled') throw new AppError('AGENT_DISABLED', 'Apt chat is disabled for this user.');
     let location = body.location ?? null;
-    if (location) {
+    if (location && shouldWithholdForegroundLocation(content)) {
+      location = null;
+    } else if (location) {
       try { location = validateForegroundLocation(location); } catch {
         throw new AppError('INVALID_MESSAGE', 'Foreground location must be fresh, accurate, and within valid ranges.');
       }

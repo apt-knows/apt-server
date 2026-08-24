@@ -5,8 +5,8 @@ from threading import Lock
 
 
 _BROWSER_TOOL_PREFIX = "browser_"
-_MAX_BROWSER_CALLS_PER_TURN = 10
-_MAX_BROWSER_NAVIGATIONS_PER_TURN = 6
+_MAX_BROWSER_CALLS_PER_TURN = 12
+_MAX_BROWSER_NAVIGATIONS_PER_TURN = 7
 _MAX_BROWSER_RESULT_CHARS = 6_000
 _MAX_TRACKED_TURNS = 256
 _turn_counts = OrderedDict()
@@ -39,6 +39,11 @@ def _scope_key(kwargs):
     )
 
 
+def _call_key(kwargs):
+    value = kwargs.get("tool_call_id")
+    return str(value) if value else ""
+
+
 def _on_pre_tool_call(tool_name=None, **kwargs):
     if not isinstance(tool_name, str) or not tool_name.startswith(_BROWSER_TOOL_PREFIX):
         return None
@@ -48,11 +53,20 @@ def _on_pre_tool_call(tool_name=None, **kwargs):
     with _turn_counts_lock:
         counts = _turn_counts.setdefault(
             scope,
-            {"browser": 0, "navigate": 0, "session_id": session_id},
+            {"browser": 0, "navigate": 0, "session_id": session_id, "in_flight": set()},
         )
         _turn_counts.move_to_end(scope)
         while len(_turn_counts) > _MAX_TRACKED_TURNS:
             _turn_counts.popitem(last=False)
+
+        if counts["in_flight"]:
+            return {
+                "action": "block",
+                "message": (
+                    "Apt browser tools must run one at a time because they share one page. "
+                    "Wait for the current browser result, then make one focused browser call."
+                ),
+            }
 
         if counts["browser"] >= _MAX_BROWSER_CALLS_PER_TURN:
             return {
@@ -79,10 +93,22 @@ def _on_pre_tool_call(tool_name=None, **kwargs):
         counts["browser"] += 1
         if tool_name == "browser_navigate":
             counts["navigate"] += 1
+        call_key = _call_key(kwargs)
+        if call_key:
+            counts["in_flight"].add(call_key)
     return None
 
 
-def _on_transform_tool_result(tool_name=None, result=None, **_kwargs):
+def _on_transform_tool_result(tool_name=None, result=None, **kwargs):
+    if isinstance(tool_name, str) and tool_name.startswith(_BROWSER_TOOL_PREFIX):
+        scope = _scope_key(kwargs)
+        call_key = _call_key(kwargs)
+        if call_key:
+            with _turn_counts_lock:
+                counts = _turn_counts.get(scope)
+                if counts is not None:
+                    counts["in_flight"].discard(call_key)
+
     if (
         not isinstance(tool_name, str)
         or not tool_name.startswith(_BROWSER_TOOL_PREFIX)
@@ -91,11 +117,15 @@ def _on_transform_tool_result(tool_name=None, result=None, **_kwargs):
     ):
         return None
 
-    suffix = (
-        "\n\n[Browser output compacted by Apt. Use the evidence above; do not repeat "
-        "the same navigation. Continue with focused interaction or submit the Hunt.]"
+    notice = (
+        "\n\n[Browser output compacted by Apt. The beginning and end are preserved "
+        "so product, menu, price, availability, and source-link evidence is less likely "
+        "to be hidden by site chrome. Do not repeat this navigation.]\n\n"
     )
-    return result[: _MAX_BROWSER_RESULT_CHARS - len(suffix)] + suffix
+    available = _MAX_BROWSER_RESULT_CHARS - len(notice)
+    head = max(1, available // 3)
+    tail = available - head
+    return result[:head] + notice + result[-tail:]
 
 
 def _on_session_end(session_id=None, **_kwargs):

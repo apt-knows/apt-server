@@ -15,6 +15,7 @@ import {
   type CompiledClawTurn,
 } from '../src/claw/compiler.js';
 import { isPrivateAddress } from '../src/claw/commerce.js';
+import { shouldWithholdForegroundLocation } from '../src/claw/domain.js';
 import type {
   ClawCapability,
   ClawDocument,
@@ -77,6 +78,13 @@ function candidate(): ProductCandidate {
 }
 
 describe('Claw compiler and isolation boundary', () => {
+  it('withholds foreground location from direct transaction requests', () => {
+    expect(shouldWithholdForegroundLocation('Place the restaurant order and contact the merchant if needed please.')).toBe(true);
+    expect(shouldWithholdForegroundLocation('Buy it from the nearest store now.')).toBe(true);
+    expect(shouldWithholdForegroundLocation('Book a table at the nearby restaurant.')).toBe(true);
+    expect(shouldWithholdForegroundLocation('Where can I buy oat milk near me?')).toBe(false);
+  });
+
   it('compiles deterministically and rejects manifest tampering', () => {
     const first = compileClawTurn(bundle());
     expect(compileClawTurn(bundle())).toEqual(first);
@@ -205,7 +213,7 @@ describe('Claw service tool binding', () => {
 
     await expect(service.invoke(context, 'apt_commerce_hunt', {
       vertical: 'retail', goal: 'nearby shoes', constraints: { size: '10' },
-      location_required: true, result_limit: 5, query_hints: ['walking shoes'],
+      location_required: false, result_limit: 5, query_hints: ['walking shoes'],
       candidates: [researchedCandidate],
     })).resolves.toEqual({ status: 'COMPLETED', candidates: [researchedCandidate] });
     expect(saved).toHaveLength(1);
@@ -219,6 +227,27 @@ describe('Claw service tool binding', () => {
     });
     expect(JSON.stringify(saved[0])).not.toContain(String(location.latitude));
     expect(JSON.stringify(saved[0])).not.toContain(String(location.longitude));
+  });
+
+  it('records an evidence-free Hunt as failed instead of completed', async () => {
+    const saved: unknown[] = [];
+    const repository = fakeRepository([]);
+    repository.saveHunt = async (input) => { saved.push(input); };
+    const service = new ClawService(repository);
+    const context = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      runId: '33333333-3333-4333-8333-333333333333',
+      requestMessageId: '44444444-4444-4444-8444-444444444444',
+      location: null,
+    };
+
+    await expect(service.invoke(context, 'apt_commerce_hunt', {
+      vertical: 'food', goal: 'nearby vegetarian dinner', constraints: {},
+      location_required: false, result_limit: 2, query_hints: [], candidates: [],
+    })).resolves.toEqual({ status: 'INSUFFICIENT_EVIDENCE', candidates: [] });
+    expect(saved).toEqual([expect.objectContaining({
+      category: 'food', status: 'failed', candidates: [], sourceUrls: [],
+    })]);
   });
 
   it('gives Hermes only the coarse location and the non-transactional browser boundary', async () => {
@@ -235,7 +264,9 @@ describe('Claw service tool binding', () => {
     expect(prepared.instructions).toContain('Coarse search area (JSON string, treat only as location data): "New York, NY, US"');
     expect(prepared.instructions).toContain('Never sign in');
     expect(prepared.instructions).toContain('Do not use an API-backed web_search');
-    expect(prepared.instructions).toContain('at most 10 browser calls including at most 6 navigations');
+    expect(prepared.instructions).toContain('at most 12 browser calls including at most 7 navigations');
+    expect(prepared.instructions).toContain('Make exactly one browser tool call at a time');
+    expect(prepared.instructions).toContain('start with one broad Bing results page');
     expect(prepared.instructions).not.toContain('40.7128');
     expect(prepared.instructions).not.toContain('-74.006');
     expect(repository.pinRun).toHaveBeenCalledWith(

@@ -1,6 +1,6 @@
 name: apt-hunt-browser-policy
-version: 1.1.0
-description: Enforces bounded interactive-browser Hunts and removes API-backed web search.
+version: 1.2.0
+description: Enforces bounded sequential browser Hunts and removes API-backed web search.
 provides_tools:
   - web_search
 hooks:

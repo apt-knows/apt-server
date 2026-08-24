@@ -33,16 +33,34 @@ class Context:
 context = Context()
 module.register(context)
 scope = {"turn_id": "turn-1", "session_id": "session-1"}
+
+def run_browser(tool_name, index):
+    call = {**scope, "tool_call_id": f"call-{index}"}
+    decision = module._on_pre_tool_call(tool_name=tool_name, **call)
+    if decision is None:
+        module._on_transform_tool_result(tool_name=tool_name, result="ok", **call)
+    return decision
+
 navigate = [
-    module._on_pre_tool_call(tool_name="browser_navigate", **scope)
-    for _ in range(6)
+    run_browser("browser_navigate", index)
+    for index in range(7)
 ]
 navigation_block = module._on_pre_tool_call(tool_name="browser_navigate", **scope)
 remaining = [
-    module._on_pre_tool_call(tool_name="browser_snapshot", **scope)
-    for _ in range(4)
+    run_browser("browser_snapshot", index + 7)
+    for index in range(5)
 ]
 total_block = module._on_pre_tool_call(tool_name="browser_click", **scope)
+
+parallel_scope = {"turn_id": "turn-2", "session_id": "session-1"}
+first_call = {**parallel_scope, "tool_call_id": "parallel-1"}
+second_call = {**parallel_scope, "tool_call_id": "parallel-2"}
+first_allowed = module._on_pre_tool_call(tool_name="browser_navigate", **first_call)
+parallel_block = module._on_pre_tool_call(tool_name="browser_navigate", **second_call)
+module._on_transform_tool_result(tool_name="browser_navigate", result="done", **first_call)
+after_parallel = module._on_pre_tool_call(tool_name="browser_snapshot", **second_call)
+module._on_transform_tool_result(tool_name="browser_snapshot", result="done", **second_call)
+
 large = "x" * 7000
 compacted = module._on_transform_tool_result(
     tool_name="browser_snapshot",
@@ -61,8 +79,12 @@ print(json.dumps({
     "navigation_block": navigation_block,
     "remaining_allowed": all(item is None for item in remaining),
     "total_block": total_block,
+    "first_allowed": first_allowed is None,
+    "parallel_block": parallel_block,
+    "after_parallel_allowed": after_parallel is None,
     "compacted_length": len(compacted),
     "compacted_notice": "Browser output compacted by Apt" in compacted,
+    "compacted_tail": compacted.endswith("x" * 100),
     "short_unchanged": module._on_transform_tool_result(
         tool_name="browser_snapshot",
         result="short",
@@ -85,13 +107,17 @@ describe('Hermes browser Hunt policy plugin', () => {
       override: true,
       navigate_allowed: true,
       remaining_allowed: true,
+      first_allowed: true,
+      after_parallel_allowed: true,
       compacted_length: 6000,
       compacted_notice: true,
+      compacted_tail: true,
       short_unchanged: true,
       non_browser_unchanged: true,
       after_reset_allowed: true,
     });
     expect(result.navigation_block).toMatchObject({ action: 'block' });
     expect(result.total_block).toMatchObject({ action: 'block' });
+    expect(result.parallel_block).toMatchObject({ action: 'block' });
   });
 });

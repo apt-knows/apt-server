@@ -4,6 +4,7 @@ export const CLAW_ALLOWED_CAPABILITIES = ['memory', 'session_search', 'skills', 
 export const CLAW_HISTORY_BUDGET_DEFAULT = 48_000;
 export const CLAW_LOCATION_MAX_AGE_MS = 5 * 60 * 1_000;
 export const CLAW_LOCATION_MAX_ACCURACY_METERS = 1_000;
+const directCommerceTransaction = /\b(?:place|submit|complete|finali[sz]e)\s+(?:the\s+|my\s+|an?\s+)?(?:restaurant\s+)?order\b|\b(?:add\s+(?:it|this|them|the\s+\w+)\s+to\s+(?:my\s+|the\s+)?cart|check\s*out|checkout|buy|purchase|order)\s+(?:it|this|them|that|for me|now)\b|\b(?:reserve|book)\s+(?:it|this|a\s+table|the\s+restaurant)\b|\b(?:contact|call|message|email)\s+(?:the\s+)?(?:merchant|restaurant|store)\b|\b(?:track|cancel|return)\s+(?:the\s+|my\s+|an?\s+)?order\b/i;
 
 export const foregroundLocationSchema = z.object({
   latitude: z.number().finite().min(-90).max(90),
@@ -21,6 +22,10 @@ export function validateForegroundLocation(location: ForegroundLocation, now = D
     throw new Error('Foreground location is stale or has an invalid capture time.');
   }
   return location;
+}
+
+export function shouldWithholdForegroundLocation(message: string) {
+  return directCommerceTransaction.test(message);
 }
 
 const boundedNullable = (maximum: number) => z.string().trim().min(1).max(maximum).nullable();

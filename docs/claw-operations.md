@@ -20,6 +20,8 @@ Before release 1 can be tested or published, an operator must provide:
 
 There is no commerce-search endpoint or commerce API key. During a Hunt, Hermes launches its browser, uses `browser_navigate` to open a public search engine and relevant merchant/store sites, interacts with read-only search/filter/location flows, and inspects current result pages. The Apt-managed `apt-hunt-browser-policy` plugin removes upstream Hermes' API-backed `web_search` fallback from the model surface, and provisioning fails if the required browser primitives are absent. The agent then calls `apt_commerce_hunt` with at most five typed candidates. Apt validates the candidate schema, vertical, freshness, public credential-free source URLs, DNS destinations, and coarse-location requirement before recording the Hunt. The browser boundary forbids authentication, accounts, contact/payment entry, terms acceptance, carts, checkout, purchases, orders, reservations, scheduling, merchant contact, and tracking.
 
+Browser calls are serialized because one Hermes turn operates one browser page; parallel navigations can race and corrupt snapshots. Browser results are bounded while preserving both the beginning and end of long snapshots. Automatic Hermes background reviews are disabled for API-server profiles because they can outlive a completed response, compete with the next foreground turn for the same model quota, and terminate that turn's shared browser process. Foreground `memory` and explicit private/shared skill operations remain enabled, persisted per profile, and reconciled to Supabase before the next turn.
+
 ## Founder access
 
 After independently verifying the intended Auth UUID, grant access from a protected Apt Server checkout:

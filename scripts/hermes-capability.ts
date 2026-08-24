@@ -33,6 +33,15 @@ function configYaml(multiplex: boolean, apiEnabled: boolean, port: number, share
   return `model:\n  default: mock-model\n  provider: custom\n  base_url: http://127.0.0.1:${providerPort}/v1\n  api_key: \${MOCK_PROVIDER_KEY}\nplatform_toolsets:\n  api_server: [memory, session_search, skills, browser]\nagent:\n  disabled_toolsets: [web, search, terminal, file, code_execution, vision, video, image_gen, video_gen, bfl, x_search, tts, stt, todo, context_engine, clarify, delegation, cronjob, homeassistant, spotify, discord, discord_admin, yuanbao, computer_use]\nbrowser:\n  backend: \"off\"\n  allow_private_urls: false\n  restrict_evaluate: true\nsecurity:\n  website_blocklist:\n    enabled: true\n    domains: [localhost, local, 0.0.0.0, 127.0.0.1, \"::1\", metadata.google.internal]\nplugins:\n  enabled: [apt-hunt-browser-policy]\n  entries:\n    apt-hunt-browser-policy:\n      allow_tool_override: true\nmemory:\n  memory_enabled: true\n  user_profile_enabled: true\n  write_approval: false\n  memory_char_limit: 2200\n  user_char_limit: 1375\nskills:\n  external_dirs: [${JSON.stringify(sharedSkills)}]\n  guard_agent_created: true\n  write_approval: false\nauxiliary:\n  background_review:\n    enabled: true\nmcp_servers:\n  apt:\n    command: ${JSON.stringify(process.execPath)}\n    args: [\"--import\", ${JSON.stringify(tsxLoader)}, ${JSON.stringify(bridgeEntry)}]\n    env:\n      APT_INTERNAL_URL: \"http://127.0.0.1:9\"\n      APT_BRIDGE_TOKEN: \"apt-capability-token-0123456789abcdef\"\n    tools:\n      include: [${aptTools.join(', ')}]\n    connect_timeout: 15\n    enabled: true\ngateway:\n  multiplex_profiles: ${multiplex}\n  multiplex_profile_allowlist: [${profiles.join(', ')}]\nplatforms:\n  api_server:\n    enabled: ${apiEnabled}\n    host: 127.0.0.1\n    port: ${port}\n    max_concurrent_runs: 10\n`;
 }
 
+function aptConfigYaml(multiplex: boolean, apiEnabled: boolean, port: number, sharedSkills = '') {
+  return configYaml(multiplex, apiEnabled, port, sharedSkills)
+    .replace('  user_char_limit: 1375\n', '  user_char_limit: 1375\n  nudge_interval: 0\n')
+    .replace(
+      '  write_approval: false\nauxiliary:\n  background_review:\n    enabled: true\n',
+      '  write_approval: false\n  creation_nudge_interval: 0\nauxiliary:\n  background_review:\n    enabled: false\n',
+    );
+}
+
 async function writeProfile(home: string, profile: typeof profiles[number]) {
   const directory = join(home, 'profiles', profile);
   const sharedSkills = join(directory, 'apt-shared-skills');
@@ -44,7 +53,7 @@ async function writeProfile(home: string, profile: typeof profiles[number]) {
   for (const name of ['plugin.yaml', '__init__.py']) {
     await writeFile(join(pluginDestination, name), await readFile(join(browserPolicyPlugin, name)));
   }
-  await writeFile(join(directory, 'config.yaml'), configYaml(false, false, gatewayPort, sharedSkills), 'utf8');
+  await writeFile(join(directory, 'config.yaml'), aptConfigYaml(false, false, gatewayPort, sharedSkills), 'utf8');
   await writeFile(join(directory, '.env'), `API_SERVER_KEY=${profileKeys[profile]}\nMOCK_PROVIDER_KEY=${providerKeys[profile]}\n${browserExecutablePath ? `AGENT_BROWSER_EXECUTABLE_PATH=${browserExecutablePath}\n` : ''}`, { mode: 0o600 });
   await writeFile(join(directory, 'SOUL.md'), `Private Soul probe for ${profile}.\n`, 'utf8');
   await writeFile(join(directory, 'memories', 'USER.md'), `USER hot-cache probe for ${profile}.\n`, 'utf8');
@@ -185,7 +194,7 @@ try {
     for (const tool of aptTools) assert(mcpProbe.stdout.includes(tool), `${profile} MCP discovery omitted ${tool}.`);
   }
   await mkdir(home, { recursive: true });
-  await writeFile(join(home, 'config.yaml'), configYaml(true, true, gatewayPort), 'utf8');
+  await writeFile(join(home, 'config.yaml'), aptConfigYaml(true, true, gatewayPort), 'utf8');
   await writeFile(join(home, '.env'), `API_SERVER_KEY=default-0123456789abcdef0123456789abcdef0123456789abcdef\nMOCK_PROVIDER_KEY=provider-default\n${browserExecutablePath ? `AGENT_BROWSER_EXECUTABLE_PATH=${browserExecutablePath}\n` : ''}`, { mode: 0o600 });
 
   gateways = [await startGateway(home, gatewayPort)];
@@ -232,7 +241,7 @@ try {
   for (let index = 0; index < profiles.length; index += 1) {
     const profile = profiles[index]!;
     const port = isolatedPorts[index]!;
-    await writeFile(join(home, 'profiles', profile, 'config.yaml'), configYaml(false, true, port, join(home, 'profiles', profile, 'apt-shared-skills')), 'utf8');
+    await writeFile(join(home, 'profiles', profile, 'config.yaml'), aptConfigYaml(false, true, port, join(home, 'profiles', profile, 'apt-shared-skills')), 'utf8');
     activeUrls[profile] = `http://127.0.0.1:${port}`;
   }
   gateways = await Promise.all(profiles.map((profile, index) => startGateway(home, isolatedPorts[index]!, profile)));
@@ -287,7 +296,7 @@ try {
   const restartPorts = await Promise.all(profiles.map(() => reservePort()));
   for (let index = 0; index < profiles.length; index += 1) {
     const profile = profiles[index]!;
-    await writeFile(join(home, 'profiles', profile, 'config.yaml'), configYaml(false, true, restartPorts[index]!, join(home, 'profiles', profile, 'apt-shared-skills')), 'utf8');
+    await writeFile(join(home, 'profiles', profile, 'config.yaml'), aptConfigYaml(false, true, restartPorts[index]!, join(home, 'profiles', profile, 'apt-shared-skills')), 'utf8');
     activeUrls[profile] = `http://127.0.0.1:${restartPorts[index]!}`;
   }
   gateways = await Promise.all(profiles.map((profile, index) => startGateway(home, restartPorts[index]!, profile)));
