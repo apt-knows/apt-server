@@ -7,6 +7,9 @@ import type { AppConfig } from './config.js';
 import { AppError, asAppError } from './errors.js';
 import type { ChatRepository } from './repository.js';
 import { RunManager } from './run-manager.js';
+import { foregroundLocationSchema, shouldWithholdForegroundLocation, validateForegroundLocation } from './claw/domain.js';
+import { verifyAptBridgeToken } from './claw/bridge-auth.js';
+import type { ClawService, ClawToolName } from './claw/service.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -22,7 +25,16 @@ const historyQuerySchema = z.object({
 const createMessageSchema = z.object({
   clientMessageId: z.uuid(),
   content: z.string(),
+  location: foregroundLocationSchema.optional(),
 });
+
+const internalToolSchema = z.object({
+  tool: z.enum([
+    'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
+    'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
+  ]),
+  arguments: z.unknown(),
+}).strict();
 
 const runParamsSchema = z.object({ runId: z.uuid() });
 
@@ -31,14 +43,15 @@ export interface AppDependencies {
   auth: AuthService;
   repository: ChatRepository;
   runtime: AgentRuntime;
+  clawService?: ClawService;
 }
 
 export async function buildApp(dependencies: AppDependencies): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: dependencies.config.logLevel, redact: ['req.headers.authorization'] },
-    bodyLimit: 12_000,
+    bodyLimit: 64_000,
   });
-  const manager = new RunManager(dependencies.repository, dependencies.runtime, app.log);
+  const manager = new RunManager(dependencies.repository, dependencies.runtime, app.log, dependencies.clawService);
 
   if (dependencies.config.allowedOrigins.length) {
     await app.register(cors, { origin: dependencies.config.allowedOrigins, methods: ['GET', 'POST'] });
@@ -84,9 +97,25 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const instance = await dependencies.repository.getAgentInstance(request.userId!);
     if (!instance) throw new AppError('AGENT_NOT_PROVISIONED', 'Apt chat has not been provisioned for this user.');
     if (instance.status === 'disabled') throw new AppError('AGENT_DISABLED', 'Apt chat is disabled for this user.');
+    let location = body.location ?? null;
+    if (location && shouldWithholdForegroundLocation(content)) {
+      location = null;
+    } else if (location) {
+      try { location = validateForegroundLocation(location); } catch {
+        throw new AppError('INVALID_MESSAGE', 'Foreground location must be fresh, accurate, and within valid ranges.');
+      }
+    }
     const turn = await dependencies.repository.createTurn(request.userId!, body.clientMessageId, content);
-    manager.begin(request.userId!, instance, turn);
+    manager.begin(request.userId!, instance, turn, location);
     return reply.status(turn.duplicate ? 200 : 202).send(turn);
+  });
+
+  app.post('/internal/claw/tool', async (request) => {
+    const token = bearerToken(request.headers.authorization);
+    const profileName = verifyAptBridgeToken(token, dependencies.config.hermes.keySecret);
+    if (!profileName) throw new AppError('UNAUTHENTICATED', 'Invalid Apt bridge credential.');
+    const body = internalToolSchema.parse(request.body);
+    return manager.invokeClawTool(profileName, body.tool as ClawToolName, body.arguments);
   });
 
   app.get('/v1/chat/runs/:runId', { preHandler: authenticate }, async (request) => {

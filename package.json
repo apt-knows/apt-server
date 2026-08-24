@@ -17,14 +17,19 @@
     "provision-user": "node --env-file-if-exists=.env --import tsx src/admin/provision-user.ts",
     "disable-user": "node --env-file-if-exists=.env --import tsx src/admin/disable-user.ts",
     "delete-user": "node --env-file-if-exists=.env --import tsx src/admin/delete-user.ts",
+    "grant-founder": "node --env-file-if-exists=.env --import tsx src/admin/grant-founder.ts",
+    "revoke-founder": "node --env-file-if-exists=.env --import tsx src/admin/revoke-founder.ts",
     "test:e2e-live": "node --env-file-if-exists=.env --import tsx scripts/e2e-live.ts",
+    "test:claw-db-live": "node --env-file-if-exists=.env --import tsx scripts/claw-db-live.ts",
     "local:phone": "node --env-file-if-exists=.env --import tsx scripts/local-phone-stack.ts",
     "test:hermes-capability": "tsx scripts/hermes-capability.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@supabase/supabase-js": "2.112.3",
     "fastify": "5.12.1",
+    "ipaddr.js": "2.5.0",
     "pg": "8.23.0",
     "zod": "4.4.3"
   },

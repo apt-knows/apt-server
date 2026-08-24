@@ -2,7 +2,7 @@
   "hermesVersion": "v2026.8.19",
   "sharedTopology": {
     "result": "fail",
-    "reason": "custom provider credential resolved from profile A while serving profile B"
+    "reason": "shared multiplexing failed the per-profile provider credential and/or Apt MCP discovery boundary"
   },
   "selectedTopology": "per_profile",
   "profiles": [
@@ -16,8 +16,20 @@
   "stateDatabaseIsolation": "pass",
   "restartIsolation": "pass",
   "crossKeyDenial": "pass",
-  "bundledSkills": "pass",
+  "soulIsolation": "pass",
+  "hotUserMemoryLimits": {
+    "userChars": 1375,
+    "memoryChars": 2200,
+    "result": "pass"
+  },
+  "aptOnlySkills": "pass",
+  "aptBridgeDiscovery": "pass",
+  "browserHuntTools": "pass",
+  "apiBackedWebSearchDisabled": "pass",
+  "browserExternalInteraction": "pass",
   "dangerousToolsDisabled": "pass",
+  "arbitraryMcpDisabled": "pass",
+  "typedBridgeBoundary": "covered-by-server-tests",
   "stop": "pass",
-  "testedAt": "2026-08-21T16:08:47.600Z"
+  "testedAt": "2026-08-24T10:36:10.516Z"
 }

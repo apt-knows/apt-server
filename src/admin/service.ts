@@ -1,10 +1,13 @@
 import { createHmac } from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import { hermesApiKey } from '../agent-runtime.js';
+import { aptBridgeToken } from '../claw/bridge-auth.js';
 import type { AppConfig } from '../config.js';
 import type { AgentInstance } from '../domain.js';
 import { AppError } from '../errors.js';
@@ -50,6 +53,7 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
   constructor(private readonly config: AppConfig['hermes']) {}
 
   private profileDir(profileName: string) {
+    if (!/^apt-[a-f0-9]{20}$/.test(profileName)) throw new Error('Refusing an invalid Hermes profile name.');
     return `${this.config.home.replace(/\/$/, '')}/profiles/${profileName}`;
   }
 
@@ -65,25 +69,74 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
   }
 
   async create(profileName: string) {
-    await this.run(['profile', 'create', profileName, '--no-alias', '--description', 'Private Apt beta chat profile.']);
+    await this.run(['profile', 'create', profileName, '--no-alias', '--no-skills', '--description', 'Private Apt beta commerce profile.']);
   }
 
   async configure(profileName: string) {
     const profileArgs = ['--profile', profileName, 'config', 'set'];
+    const sharedSkills = `${this.profileDir(profileName)}/apt-shared-skills`;
+    const bridgeSource = fileURLToPath(new URL('../claw/bridge-server.ts', import.meta.url));
+    const bridgeCompiled = fileURLToPath(new URL('../claw/bridge-server.js', import.meta.url));
+    const bridgeEntry = await firstAccessible([bridgeSource, bridgeCompiled]);
+    const tsxLoader = fileURLToPath(new URL('../../node_modules/tsx/dist/loader.mjs', import.meta.url));
+    const bridgeArgs = bridgeEntry.endsWith('.ts') ? ['--import', tsxLoader, bridgeEntry] : [bridgeEntry];
+    const bridgeTools = [
+      'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
+      'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
+    ];
+    await this.installBrowserPolicy(profileName);
     const entries: [string, string][] = [
       ['model.default', this.config.model],
       ['model.provider', this.config.provider],
       ['model.api_key', `\${${this.config.providerKeyEnv}}`],
-      ['platform_toolsets.api_server', '["no_mcp"]'],
-      ['agent.disabled_toolsets', '["web","browser","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","skills","todo","memory","context_engine","session_search","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
-      ['memory.user_profile.enabled', 'false'],
-      ['memory.auto_save', 'false'],
+      ['platform_toolsets.api_server', '["memory","session_search","skills","browser"]'],
+      ['agent.disabled_toolsets', '["web","search","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","todo","context_engine","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
+      ['browser.backend', '"off"'],
+      ['browser.allow_private_urls', 'false'],
+      ['browser.restrict_evaluate', 'true'],
+      ['security.website_blocklist.enabled', 'true'],
+      ['security.website_blocklist.domains', '["localhost","local","0.0.0.0","127.0.0.1","::1","metadata.google.internal"]'],
+      ['plugins.enabled', '["apt-hunt-browser-policy"]'],
+      ['plugins.entries.apt-hunt-browser-policy.allow_tool_override', 'true'],
+      ['memory.memory_enabled', 'true'],
+      ['memory.user_profile_enabled', 'true'],
+      ['memory.write_approval', 'false'],
+      ['memory.memory_char_limit', '2200'],
+      ['memory.user_char_limit', '1375'],
+      ['memory.nudge_interval', '0'],
+      ['skills.external_dirs', JSON.stringify([sharedSkills])],
+      ['skills.guard_agent_created', 'true'],
+      ['skills.write_approval', 'false'],
+      ['skills.creation_nudge_interval', '0'],
+      ['auxiliary.background_review.enabled', 'false'],
+      ['mcp_servers', JSON.stringify({
+        apt: {
+          command: process.execPath,
+          args: bridgeArgs,
+          env: { APT_INTERNAL_URL: '${APT_INTERNAL_URL}', APT_BRIDGE_TOKEN: '${APT_BRIDGE_TOKEN}' },
+          tools: { include: bridgeTools },
+          connect_timeout: 15,
+          enabled: true,
+        },
+      })],
     ];
     if (this.config.providerBaseUrl) entries.push(['model.base_url', this.config.providerBaseUrl]);
-    for (const [key, value] of entries) await this.run([...profileArgs, key, value]);
+    for (const [key, value] of entries) {
+      await this.run([...profileArgs, ...(key === 'mcp_servers' ? ['--force'] : []), key, value]);
+    }
+    await this.run(['--profile', profileName, 'skills', 'opt-out', '--remove', '--yes']);
+    await this.removeNonPrivateSkills(profileName);
     await this.upsertSecret(profileName, this.config.providerKeyEnv, this.config.providerApiKey);
     await this.upsertSecret(profileName, 'API_SERVER_KEY', hermesApiKey(profileName, this.config.keySecret));
+    await this.upsertSecret(profileName, 'APT_INTERNAL_URL', this.config.internalUrl);
+    await this.upsertSecret(profileName, 'APT_BRIDGE_TOKEN', aptBridgeToken(profileName, this.config.keySecret));
+    const browserExecutable = this.config.browserExecutablePath ?? await optionalFirstAccessible([
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ]);
+    if (browserExecutable) await this.upsertSecret(profileName, 'AGENT_BROWSER_EXECUTABLE_PATH', browserExecutable);
     await this.run(['--profile', profileName, 'config', 'check']);
+    await this.run(['--profile', profileName, 'mcp', 'test', 'apt']);
   }
 
   async validate(profileName: string, sessionId: string) {
@@ -113,10 +166,26 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
         request('/v1/capabilities'), request('/v1/skills'), request('/v1/toolsets'),
       ]);
       if (!capabilities.ok || !skills.ok || !toolsets.ok) throw new Error('Hermes discovery validation failed.');
-      const skillRows = rows(await skills.json(), 'skills');
-      const toolRows = rows(await toolsets.json(), 'toolsets') as Array<{ enabled?: boolean; tools?: unknown[] }>;
-      if (!skillRows.length) throw new Error('Hermes profile has no seeded bundled skills.');
-      if (toolRows.some((row) => row.enabled && row.tools?.length)) throw new Error('Hermes API server exposes an enabled model tool.');
+      await skills.json();
+      const toolRows = rows(await toolsets.json(), 'toolsets') as Array<{ name?: string; key?: string; enabled?: boolean; tools?: unknown[] }>;
+      const enabledToolsets = new Set(toolRows.filter((row) => row.enabled).map((row) => row.key ?? row.name).filter(Boolean));
+      for (const required of ['memory', 'session_search', 'skills', 'browser']) {
+        if (!enabledToolsets.has(required)) throw new Error(`Hermes profile is missing required ${required} toolset.`);
+      }
+      const forbidden = [...enabledToolsets].filter((key) => !['memory', 'session_search', 'skills', 'browser'].includes(String(key)));
+      if (forbidden.length) throw new Error(`Hermes API server exposes forbidden toolsets: ${forbidden.join(', ')}.`);
+      const browserRow = toolRows.find((row) => (row.key ?? row.name) === 'browser');
+      const browserTools = new Set((browserRow?.tools ?? []).map((tool) => {
+        if (typeof tool === 'string') return tool;
+        if (tool && typeof tool === 'object') {
+          const record = tool as { name?: unknown; key?: unknown };
+          return typeof record.name === 'string' ? record.name : typeof record.key === 'string' ? record.key : '';
+        }
+        return '';
+      }));
+      for (const required of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press']) {
+        if (!browserTools.has(required)) throw new Error(`Hermes browser toolset is missing required Hunt primitive ${required}.`);
+      }
 
       const submitted = await request('/v1/runs', {
         method: 'POST',
@@ -150,9 +219,42 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
     await chmod(path, 0o600);
   }
 
+  private async installBrowserPolicy(profileName: string) {
+    const source = fileURLToPath(new URL('../../hermes-plugins/apt-hunt-browser-policy/', import.meta.url));
+    const destination = `${this.profileDir(profileName)}/plugins/apt-hunt-browser-policy`;
+    await mkdir(destination, { recursive: true, mode: 0o700 });
+    for (const name of ['plugin.yaml', '__init__.py']) {
+      const content = await readFile(`${source}/${name}`);
+      const temporary = `${destination}/${name}.next-${process.pid}`;
+      await writeFile(temporary, content, { mode: 0o600 });
+      await chmod(temporary, 0o600);
+      await rename(temporary, `${destination}/${name}`);
+    }
+  }
+
+  private async removeNonPrivateSkills(profileName: string) {
+    const directory = `${this.profileDir(profileName)}/skills`;
+    let entries: Dirent[] = [];
+    try { entries = await readdir(directory, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (!entry.name.startsWith('private.')) await rm(`${directory}/${entry.name}`, { recursive: true, force: true });
+    }
+  }
+
   async delete(profileName: string) {
     if (await this.exists(profileName)) await this.run(['profile', 'delete', profileName, '--yes']);
   }
+}
+
+async function firstAccessible(paths: string[]) {
+  for (const path of paths) {
+    try { await access(path); return path; } catch { /* try compiled/source counterpart */ }
+  }
+  throw new Error('Apt Claw bridge entrypoint is missing.');
+}
+
+async function optionalFirstAccessible(paths: string[]) {
+  try { return await firstAccessible(paths); } catch { return null; }
 }
 
 export class ProvisioningService {
@@ -171,10 +273,10 @@ export class ProvisioningService {
       throw new Error('Stored agent identity does not match the deterministic provisioning identity.');
     }
     const profileExists = await this.hermes.exists(identity.profileName);
-    if (existing && profileExists) return existing;
     if (!profileExists) await this.hermes.create(identity.profileName);
     await this.hermes.configure(identity.profileName);
     await this.hermes.validate(identity.profileName, identity.sessionId);
+    if (existing) return existing;
     return this.repository.upsertAgentInstance({ userId, hermesProfileName: identity.profileName, hermesSessionId: identity.sessionId });
   }
 
