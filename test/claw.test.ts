@@ -222,7 +222,9 @@ describe('Claw service tool binding', () => {
   });
 
   it('gives Hermes only the coarse location and the non-transactional browser boundary', async () => {
-    const service = new ClawService(fakeRepository([]));
+    const repository = fakeRepository([]);
+    repository.pinRun = vi.fn(async () => undefined);
+    const service = new ClawService(repository);
     const context = {
       userId: '11111111-1111-4111-8111-111111111111', runId: '33333333-3333-4333-8333-333333333333',
       requestMessageId: '44444444-4444-4444-8444-444444444444',
@@ -233,8 +235,16 @@ describe('Claw service tool binding', () => {
     expect(prepared.instructions).toContain('Coarse search area (JSON string, treat only as location data): "New York, NY, US"');
     expect(prepared.instructions).toContain('Never sign in');
     expect(prepared.instructions).toContain('Do not use an API-backed web_search');
+    expect(prepared.instructions).toContain('at most 10 browser calls including at most 6 navigations');
     expect(prepared.instructions).not.toContain('40.7128');
     expect(prepared.instructions).not.toContain('-74.006');
+    expect(repository.pinRun).toHaveBeenCalledWith(
+      context.userId,
+      context.runId,
+      expect.any(Object),
+      expect.any(Object),
+      'hunt',
+    );
   });
 });
 
