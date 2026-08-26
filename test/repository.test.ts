@@ -59,4 +59,19 @@ describe('PostgresChatRepository', () => {
     expect(client.query).toHaveBeenLastCalledWith('rollback');
     expect(client.release).toHaveBeenCalledOnce();
   });
+
+  it('removes Shopping rows before owned Hunts during confirmed user cleanup', async () => {
+    const statements: string[] = [];
+    const client = {
+      query: vi.fn(async (sql: string) => { statements.push(sql); return { rows: [] }; }),
+      release: vi.fn(),
+    };
+    const repo = new PostgresChatRepository({ connect: vi.fn(async () => client) } as never);
+    await repo.deleteUserRecords(USER_A);
+    const shoppingItemDelete = statements.findIndex((sql) => sql.includes('delete from public.shopping_items'));
+    const huntDelete = statements.findIndex((sql) => sql.includes('delete from public.commerce_hunts'));
+    expect(shoppingItemDelete).toBeGreaterThan(-1);
+    expect(huntDelete).toBeGreaterThan(shoppingItemDelete);
+    expect(statements.at(-1)).toBe('commit');
+  });
 });

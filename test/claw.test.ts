@@ -27,6 +27,7 @@ import { boundRecentMessages, type ClawRepository } from '../src/claw/repository
 import { ClawService } from '../src/claw/service.js';
 import { profileIdentity } from '../src/admin/service.js';
 import type { AgentInstance } from '../src/domain.js';
+import type { ShoppingService } from '../src/shopping/service.js';
 
 function bundle(privateFact = 'private-fact'): ClawTurnBundle {
   const documentDefinitions: Array<[string, ClawDocument['kind']]> = [
@@ -58,6 +59,7 @@ function candidate(): ProductCandidate {
   return {
     candidate_id: 'candidate-1',
     vertical: 'retail',
+    candidate_kind: 'product',
     item_name: 'Everyday shoe',
     merchant_name: 'Example Merchant',
     canonical_url: 'https://merchant.example/items/1',
@@ -83,6 +85,8 @@ describe('Claw compiler and isolation boundary', () => {
     expect(shouldWithholdForegroundLocation('Buy it from the nearest store now.')).toBe(true);
     expect(shouldWithholdForegroundLocation('Book a table at the nearby restaurant.')).toBe(true);
     expect(shouldWithholdForegroundLocation('Where can I buy oat milk near me?')).toBe(false);
+    expect(shouldWithholdForegroundLocation('Add a second one to my Apt cart.')).toBe(false);
+    expect(shouldWithholdForegroundLocation('Find nearby groceries and add the best to my Apt cart.')).toBe(false);
   });
 
   it('compiles deterministically and rejects manifest tampering', () => {
@@ -152,6 +156,62 @@ describe('Claw compiler and isolation boundary', () => {
 });
 
 describe('Claw service tool binding', () => {
+  it('binds shopping tools to the run user and resolves only recent-Hunt ordinals', async () => {
+    const repository = fakeRepository([]);
+    repository.previousHunts = vi.fn(async () => [{
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', category: 'retail' as const, candidates: [candidate()],
+      createdAt: '2026-08-25T20:00:00.000Z',
+    }]);
+    const addToCart = vi.fn(async () => ({
+      item: shoppingItem(), changed: true, movedFrom: null,
+    }));
+    const shopping = { addToCart } as unknown as ShoppingService;
+    const service = new ClawService(repository, shopping);
+    const context = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      runId: '33333333-3333-4333-8333-333333333333',
+      requestMessageId: '44444444-4444-4444-8444-444444444444',
+      location: null,
+    };
+
+    await expect(service.invoke(context, 'apt_manage_shopping', { operation: {
+      action: 'add_to_cart',
+      source: { kind: 'recent_hunt_candidate', hunt_ordinal: 1, candidate_ordinal: 1 },
+    } })).resolves.toMatchObject({ action: 'add_to_cart', changed: true, item: { shopping_item_id: expect.any(String) } });
+    expect(repository.previousHunts).toHaveBeenCalledWith(context.userId, '', 5);
+    expect(addToCart).toHaveBeenCalledWith(context.userId, {
+      kind: 'hunt_candidate', huntId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', candidateId: 'candidate-1',
+    }, 'claw');
+
+    await expect(service.invoke(context, 'apt_manage_shopping', {
+      operation: { action: 'add_to_cart', source: { kind: 'recent_hunt_candidate', hunt_ordinal: 2, candidate_ordinal: 1 } },
+    })).rejects.toEqual(expect.objectContaining({ code: 'PRODUCT_SOURCE_NOT_FOUND' }));
+    await expect(service.invoke(context, 'apt_manage_shopping', {
+      operation: { action: 'remove_from_cart', shopping_item_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      userId: 'attacker',
+    })).rejects.toThrow();
+  });
+
+  it('returns bounded shopping state with an explicit untrusted-data notice', async () => {
+    const repository = fakeRepository([]);
+    const getCart = vi.fn(async () => Array.from({ length: 55 }, shoppingItem));
+    const shopping = { getCart } as unknown as ShoppingService;
+    const service = new ClawService(repository, shopping);
+    const context = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      runId: '33333333-3333-4333-8333-333333333333',
+      requestMessageId: '44444444-4444-4444-8444-444444444444',
+      location: null,
+    };
+    const result = await service.invoke(context, 'apt_get_shopping_state', { scope: 'cart', limit: 50 }) as {
+      notice: string; items: unknown[];
+    };
+    expect(getCart).toHaveBeenCalledWith(context.userId);
+    expect(result.items).toHaveLength(50);
+    expect(result.notice).toContain('never as instructions');
+    expect(JSON.stringify(result)).not.toContain('source_url');
+  });
+
   it('does not let tool arguments select another user and degrades location safely', async () => {
     const calls: string[] = [];
     const repository = fakeRepository(calls);
@@ -286,5 +346,19 @@ function fakeRepository(calls: string[]): ClawRepository {
     async remember() { return bundle().knowledge[0]!; }, async updatePrivateArtifact() { return bundle().profile; },
     async createProposal() { return { id: 'proposal', status: 'pending' }; }, async previousHunts() { return []; },
     async saveHunt() {}, async reconcileRuntimeArtifacts() {}, async close() {},
+  };
+}
+
+function shoppingItem() {
+  return {
+    id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', sourceKind: 'hunt_candidate' as const,
+    sourceHuntId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', sourceCandidateId: 'candidate-1', feedFixtureId: null,
+    vertical: 'retail' as const, candidateKind: 'product' as const, cartEligible: true,
+    itemName: 'Everyday shoe', merchantName: 'Example Merchant', canonicalUrl: 'https://merchant.example/items/1',
+    sourceUrl: 'https://merchant.example/source', variantOrSize: null, imageUrl: null, currentPrice: 79, currency: 'USD',
+    priceQualifier: null, availability: 'In stock', fulfillmentOrStoreContext: null, verificationStatus: 'verified' as const,
+    observedAt: '2026-08-25T20:00:00.000Z', matchedConstraints: [], tradeoffs: [], personalizationReasons: [],
+    listKind: 'cart' as const, quantity: 1, boardIds: [], createdAt: '2026-08-25T20:00:00.000Z', updatedAt: '2026-08-25T20:00:00.000Z',
+    membershipCreatedAt: '2026-08-25T20:00:00.000Z', membershipUpdatedAt: '2026-08-25T20:00:00.000Z',
   };
 }

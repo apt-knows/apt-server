@@ -26,7 +26,8 @@ let sharedMcpDiscovery = true;
 const bridgeEntry = join(process.cwd(), 'src', 'claw', 'bridge-server.ts');
 const tsxLoader = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'loader.mjs');
 const browserPolicyPlugin = join(process.cwd(), 'hermes-plugins', 'apt-hunt-browser-policy');
-const aptTools = ['apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact', 'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt'];
+const aptTools = ['apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact', 'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt', 'apt_get_shopping_state', 'apt_manage_shopping'];
+assert(aptTools.length === 8 && new Set(aptTools).size === 8, 'Apt bridge must expose exactly eight unique tools.');
 let browserExecutablePath = process.env.AGENT_BROWSER_EXECUTABLE_PATH ?? '';
 
 function configYaml(multiplex: boolean, apiEnabled: boolean, port: number, sharedSkills = '') {
@@ -192,6 +193,11 @@ try {
       env: { ...process.env, HERMES_HOME: home }, timeout: 60_000,
     });
     for (const tool of aptTools) assert(mcpProbe.stdout.includes(tool), `${profile} MCP discovery omitted ${tool}.`);
+    const discoveredAptTools = [...new Set(mcpProbe.stdout.match(/apt_[a-z_]+/g) ?? [])].sort();
+    assert(
+      discoveredAptTools.length === aptTools.length && aptTools.every((tool) => discoveredAptTools.includes(tool)),
+      `${profile} MCP discovery did not expose exactly the eight approved Apt tools: ${discoveredAptTools.join(', ')}.`,
+    );
   }
   await mkdir(home, { recursive: true });
   await writeFile(join(home, 'config.yaml'), aptConfigYaml(true, true, gatewayPort), 'utf8');

@@ -10,6 +10,7 @@ function candidate(overrides: Partial<ProductCandidate> = {}): ProductCandidate 
   return {
     candidate_id: 'candidate-1',
     vertical: 'retail',
+    candidate_kind: 'product',
     item_name: 'Everyday shoe',
     merchant_name: 'Example Merchant',
     canonical_url: 'https://merchant.example/items/1',

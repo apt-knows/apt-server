@@ -10,6 +10,7 @@ import { RunManager } from './run-manager.js';
 import { foregroundLocationSchema, shouldWithholdForegroundLocation, validateForegroundLocation } from './claw/domain.js';
 import { verifyAptBridgeToken } from './claw/bridge-auth.js';
 import type { ClawService, ClawToolName } from './claw/service.js';
+import type { ShoppingService } from './shopping/service.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -32,11 +33,17 @@ const internalToolSchema = z.object({
   tool: z.enum([
     'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
     'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
+    'apt_get_shopping_state', 'apt_manage_shopping',
   ]),
   arguments: z.unknown(),
 }).strict();
 
 const runParamsSchema = z.object({ runId: z.uuid() });
+const itemParamsSchema = z.object({ itemId: z.uuid() });
+const boardParamsSchema = z.object({ boardId: z.uuid() });
+const boardItemParamsSchema = z.object({ boardId: z.uuid(), itemId: z.uuid() });
+const productReferenceBodySchema = z.object({ reference: z.unknown() }).strict();
+const quantityBodySchema = z.object({ quantity: z.unknown() }).strict();
 
 export interface AppDependencies {
   config: AppConfig;
@@ -44,6 +51,7 @@ export interface AppDependencies {
   repository: ChatRepository;
   runtime: AgentRuntime;
   clawService?: ClawService;
+  shoppingService?: ShoppingService;
 }
 
 export async function buildApp(dependencies: AppDependencies): Promise<FastifyInstance> {
@@ -54,7 +62,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   const manager = new RunManager(dependencies.repository, dependencies.runtime, app.log, dependencies.clawService);
 
   if (dependencies.config.allowedOrigins.length) {
-    await app.register(cors, { origin: dependencies.config.allowedOrigins, methods: ['GET', 'POST'] });
+    await app.register(cors, { origin: dependencies.config.allowedOrigins, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   }
 
   app.setErrorHandler((error, request, reply) => {
@@ -109,6 +117,85 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     manager.begin(request.userId!, instance, turn, location);
     return reply.status(turn.duplicate ? 200 : 202).send(turn);
   });
+
+  if (dependencies.shoppingService) {
+    const shopping = dependencies.shoppingService;
+
+    app.get('/v1/shopping/summary', { preHandler: authenticate }, async (request) =>
+      shopping.getSummary(request.userId!));
+
+    app.get('/v1/cart', { preHandler: authenticate }, async (request) => ({
+      items: await shopping.getCart(request.userId!),
+    }));
+
+    app.post('/v1/cart/items', { preHandler: authenticate }, async (request, reply) => {
+      const { reference } = productReferenceBodySchema.parse(request.body);
+      const result = await shopping.addToCart(request.userId!, reference, 'mobile');
+      return reply.status(result.changed ? 201 : 200).send(result);
+    });
+
+    app.patch('/v1/cart/items/:itemId', { preHandler: authenticate }, async (request) => {
+      const { itemId } = itemParamsSchema.parse(request.params);
+      const { quantity } = quantityBodySchema.parse(request.body);
+      return shopping.setCartQuantity(request.userId!, itemId, quantity);
+    });
+
+    app.delete('/v1/cart/items/:itemId', { preHandler: authenticate }, async (request) => {
+      const { itemId } = itemParamsSchema.parse(request.params);
+      return shopping.removeFromCart(request.userId!, itemId);
+    });
+
+    app.get('/v1/wishlist', { preHandler: authenticate }, async (request) => ({
+      items: await shopping.getWishlist(request.userId!),
+    }));
+
+    app.post('/v1/wishlist/items', { preHandler: authenticate }, async (request, reply) => {
+      const { reference } = productReferenceBodySchema.parse(request.body);
+      const result = await shopping.addToWishlist(request.userId!, reference, 'mobile');
+      return reply.status(result.changed ? 201 : 200).send(result);
+    });
+
+    app.delete('/v1/wishlist/items/:itemId', { preHandler: authenticate }, async (request) => {
+      const { itemId } = itemParamsSchema.parse(request.params);
+      return shopping.removeFromWishlist(request.userId!, itemId);
+    });
+
+    app.get('/v1/boards', { preHandler: authenticate }, async (request) => ({
+      boards: await shopping.listBoards(request.userId!),
+    }));
+
+    app.post('/v1/boards', { preHandler: authenticate }, async (request, reply) => {
+      const result = await shopping.createBoard(request.userId!, request.body, 'mobile');
+      return reply.status(result.changed ? 201 : 200).send(result);
+    });
+
+    app.get('/v1/boards/:boardId', { preHandler: authenticate }, async (request) => {
+      const { boardId } = boardParamsSchema.parse(request.params);
+      return shopping.getBoard(request.userId!, boardId);
+    });
+
+    app.patch('/v1/boards/:boardId', { preHandler: authenticate }, async (request) => {
+      const { boardId } = boardParamsSchema.parse(request.params);
+      return shopping.updateBoard(request.userId!, boardId, request.body);
+    });
+
+    app.delete('/v1/boards/:boardId', { preHandler: authenticate }, async (request) => {
+      const { boardId } = boardParamsSchema.parse(request.params);
+      return shopping.deleteBoard(request.userId!, boardId);
+    });
+
+    app.post('/v1/boards/:boardId/items', { preHandler: authenticate }, async (request, reply) => {
+      const { boardId } = boardParamsSchema.parse(request.params);
+      const { reference } = productReferenceBodySchema.parse(request.body);
+      const result = await shopping.addToBoard(request.userId!, boardId, reference, 'mobile');
+      return reply.status(result.changed ? 201 : 200).send(result);
+    });
+
+    app.delete('/v1/boards/:boardId/items/:itemId', { preHandler: authenticate }, async (request) => {
+      const { boardId, itemId } = boardItemParamsSchema.parse(request.params);
+      return shopping.removeFromBoard(request.userId!, boardId, itemId);
+    });
+  }
 
   app.post('/internal/claw/tool', async (request) => {
     const token = bearerToken(request.headers.authorization);

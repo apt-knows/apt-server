@@ -83,6 +83,7 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
     const bridgeTools = [
       'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
       'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
+      'apt_get_shopping_state', 'apt_manage_shopping',
     ];
     await this.installBrowserPolicy(profileName);
     const entries: [string, string][] = [
