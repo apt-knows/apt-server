@@ -76,6 +76,18 @@ describe('browser-researched Hunt evidence boundary', () => {
     await expect(assertPublicHttpUrl('https://merchant.example/item')).rejects.toThrow('metadata-network URLs are blocked');
   });
 
+  it('rejects merchant homepages and duplicate product URLs as product evidence', async () => {
+    await expect(validateBrowserHuntRecord(record({
+      candidates: [candidate({ canonical_url: 'https://merchant.example/', source_url: 'https://merchant.example/' })],
+    }))).rejects.toThrow('direct-product URL');
+
+    await expect(validateBrowserHuntRecord(record({
+      result_limit: 2,
+      candidates: [candidate(), candidate({ candidate_id: 'candidate-2' })],
+    }))).rejects.toThrow('distinct direct-product URL');
+    expect(network.lookup).not.toHaveBeenCalled();
+  });
+
   it('blocks local schemes and hostnames before DNS resolution', async () => {
     await expect(assertPublicHttpUrl('file:///etc/passwd')).rejects.toThrow('public HTTP(S)');
     await expect(assertPublicHttpUrl('http://localhost:8787/internal')).rejects.toThrow('Local network URLs are blocked');

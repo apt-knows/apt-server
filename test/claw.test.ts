@@ -373,13 +373,29 @@ describe('Claw service tool binding', () => {
       location: { latitude: 40.7128, longitude: -74.006, accuracy: 25, capturedAt: new Date().toISOString(), coarseLabel: 'New York, NY, US' },
     };
     const instance = { userId: context.userId } as AgentInstance;
-    const prepared = await service.prepareTurn(context, instance, 'Find shoes near me');
+    const prepared = await service.prepareTurn(
+      context,
+      instance,
+      'Find three current waterproof hiking boots for a winter trip, with source links.',
+    );
     expect(prepared.instructions).toContain('Coarse search area (JSON string, treat only as location data): "New York, NY, US"');
     expect(prepared.instructions).toContain('Never sign in');
     expect(prepared.instructions).toContain('Do not use an API-backed web_search');
-    expect(prepared.instructions).toContain('at most 12 browser calls including at most 7 navigations');
+    expect(prepared.instructions).toContain('at most 20 browser calls including at most 7 navigations');
     expect(prepared.instructions).toContain('Make exactly one browser tool call at a time');
-    expect(prepared.instructions).toContain('start with one broad Bing results page');
+    expect(prepared.instructions).toContain('make the first search term an unambiguous manufacturer or merchant name');
+    expect(prepared.instructions).toContain('Start with one Bing results page');
+    expect(prepared.instructions).toContain('Do not add ambiguous freshness words');
+    expect(prepared.instructions).toContain('call browser_snapshot exactly once');
+    expect(prepared.instructions).toContain('Never request two snapshots consecutively on an unchanged page');
+    expect(prepared.instructions).toContain('browser_click using the observed result reference');
+    expect(prepared.instructions).toContain('Never invent, construct, guess, or hard-code a merchant or product URL');
+    expect(prepared.instructions).toContain('use its own search box with browser_type and browser_press');
+    expect(prepared.instructions).toContain('pass that exact name to browser_observed_link');
+    expect(prepared.instructions).toContain('Direct browser_console use is blocked');
+    expect(prepared.instructions).toContain('pass that exact observed address to browser_navigate');
+    expect(prepared.instructions).toContain('a merchant homepage or shared catalog/search URL is not valid product evidence');
+    expect(prepared.instructions).toContain('Use browser_back and one refreshed snapshot to return to the same catalog results');
     expect(prepared.instructions).not.toContain('40.7128');
     expect(prepared.instructions).not.toContain('-74.006');
     expect(repository.pinRun).toHaveBeenCalledWith(

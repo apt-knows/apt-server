@@ -4,6 +4,7 @@ import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { APT_BROWSER_COMMAND_TIMEOUT_SECONDS } from '../src/claw/browser-config.js';
 
 const execFileAsync = promisify(execFile);
 const hermes = process.env.HERMES_CLI ?? 'hermes';
@@ -36,6 +37,7 @@ function configYaml(multiplex: boolean, apiEnabled: boolean, port: number, share
 
 function aptConfigYaml(multiplex: boolean, apiEnabled: boolean, port: number, sharedSkills = '') {
   return configYaml(multiplex, apiEnabled, port, sharedSkills)
+    .replace('  restrict_evaluate: true\n', `  restrict_evaluate: true\n  command_timeout: ${APT_BROWSER_COMMAND_TIMEOUT_SECONDS}\n`)
     .replace('  user_char_limit: 1375\n', '  user_char_limit: 1375\n  nudge_interval: 0\n')
     .replace(
       '  write_approval: false\nauxiliary:\n  background_review:\n    enabled: true\n',
@@ -163,6 +165,23 @@ async function verifyExternalBrowserInteraction() {
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 
+interface ToolsetRow {
+  key?: string;
+  name?: string;
+  enabled?: boolean;
+  tools?: unknown[];
+}
+
+function registeredToolNames(row: ToolsetRow | undefined) {
+  return (row?.tools ?? []).flatMap((tool) => {
+    if (typeof tool === 'string') return [tool];
+    if (!tool || typeof tool !== 'object') return [];
+    const record = tool as { name?: unknown; key?: unknown };
+    if (typeof record.name === 'string') return [record.name];
+    return typeof record.key === 'string' ? [record.key] : [];
+  });
+}
+
 async function reservePort() {
   const reservation = createServer();
   await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
@@ -266,16 +285,18 @@ try {
   await Promise.all([waitForRun(profiles[0], fallbackConcurrent[0]), waitForRun(profiles[1], fallbackConcurrent[1])]);
   for (const profile of profiles) {
     const toolsets = await api(profile, '/v1/toolsets');
-    const body = await toolsets.json() as Array<{ key?: string; name?: string; enabled?: boolean }> | { toolsets?: Array<{ key?: string; name?: string; enabled?: boolean }>; data?: Array<{ key?: string; name?: string; enabled?: boolean }> };
+    const body = await toolsets.json() as ToolsetRow[] | { toolsets?: ToolsetRow[]; data?: ToolsetRow[] };
     const rows = Array.isArray(body) ? body : body.toolsets ?? body.data ?? [];
     const enabledKeys = rows.filter((row) => row.enabled).map((row) => row.key ?? row.name);
     for (const required of ['memory', 'session_search', 'skills', 'browser']) assert(enabledKeys.includes(required), `Per-profile ${profile} is missing ${required}: enabled=${enabledKeys.join(', ')}`);
     assert(enabledKeys.every((key) => ['memory', 'session_search', 'skills', 'browser'].includes(String(key))), `Per-profile ${profile} exposed forbidden toolsets: ${enabledKeys.join(', ')}.`);
+    const browserTools = registeredToolNames(rows.find((row) => (row.key ?? row.name) === 'browser'));
+    assert(browserTools.includes('browser_observed_link'), `Per-profile ${profile} did not register Apt's observed-link resolver: ${browserTools.join(', ')}.`);
   }
   for (const providerKey of ['provider-a', 'provider-b']) {
     const effectiveTools = providerTools[providerKey]!;
     for (const tool of ['tool_search', 'tool_describe', 'tool_call']) assert(effectiveTools.includes(tool), `${providerKey} model surface is missing constrained MCP discovery tool ${tool}: ${effectiveTools.join(', ')}`);
-    for (const tool of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press']) {
+    for (const tool of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press', 'browser_console']) {
       assert(effectiveTools.includes(tool), `${providerKey} model surface is missing required Hunt browser tool ${tool}: ${effectiveTools.join(', ')}`);
     }
     assert(!effectiveTools.includes('web_search'), `${providerKey} model surface exposed API-backed web_search.`);

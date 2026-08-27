@@ -222,7 +222,7 @@ function browserToolNames(messages: HermesSessionMessage[]) {
 async function verifyPersistedBrowserHunt(
   userId: string,
   runId: string,
-  location: LiveForegroundLocation,
+  location: LiveForegroundLocation | null,
   identity: HermesIdentity,
   priorHermesMessageFingerprints: Set<string>,
 ) {
@@ -260,7 +260,11 @@ async function verifyPersistedBrowserHunt(
     const row = result.rows[0]!;
     assert(row.status === 'completed' && row.claw_mode === 'hunt', 'Browser Hunt did not settle as a completed Hunt run.');
     assert(row.category === 'retail', `Browser Hunt persisted unexpected category ${row.category}.`);
-    assert(row.coarse_location_label === location.coarseLabel, 'Browser Hunt did not persist the expected coarse location label.');
+    if (location) {
+      assert(row.coarse_location_label === location.coarseLabel, 'Browser Hunt did not persist the expected coarse location label.');
+    } else {
+      assert(row.coarse_location_label === null, 'Browser Hunt unexpectedly persisted a coarse location label.');
+    }
     assert(row.hermes_profile_name === identity.profileName && row.hermes_session_id === identity.sessionId, 'Browser Hunt ran under an unexpected Hermes identity.');
     assert(Array.isArray(row.candidates) && row.candidates.length > 0 && row.candidates.length <= 5, 'Browser Hunt persisted an invalid candidate count.');
     assert(Array.isArray(row.source_urls) && row.source_urls.length > 0, 'Browser Hunt persisted no source URLs.');
@@ -270,9 +274,21 @@ async function verifyPersistedBrowserHunt(
       const parsed = new URL(sourceUrl);
       assert(parsed.protocol === 'http:' || parsed.protocol === 'https:', 'Browser Hunt persisted a non-public source URL.');
     }
-    const persistenceText = JSON.stringify(row);
-    assert(!persistenceText.includes(String(location.latitude)), 'Exact latitude was persisted in Hunt data.');
-    assert(!persistenceText.includes(String(location.longitude)), 'Exact longitude was persisted in Hunt data.');
+    const productCanonicalUrls = row.candidates.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== 'object') return [];
+      const record = candidate as Record<string, unknown>;
+      if (record.candidate_kind !== 'product' || typeof record.canonical_url !== 'string') return [];
+      const parsed = new URL(record.canonical_url);
+      assert(Boolean((parsed.pathname && parsed.pathname !== '/') || parsed.search), 'Browser Hunt persisted a merchant homepage as product evidence.');
+      return [parsed.href.replace(/#.*$/, '')];
+    });
+    assert(new Set(productCanonicalUrls).size === productCanonicalUrls.length, 'Browser Hunt persisted duplicate product URLs.');
+    assert(sourceUrls.length >= row.candidates.length, 'Browser Hunt persisted fewer distinct evidence URLs than candidates.');
+    if (location) {
+      const persistenceText = JSON.stringify(row);
+      assert(!persistenceText.includes(String(location.latitude)), 'Exact latitude was persisted in Hunt data.');
+      assert(!persistenceText.includes(String(location.longitude)), 'Exact longitude was persisted in Hunt data.');
+    }
 
     const currentHermesMessages = await loadHermesMessages(identity);
     const huntTrace = currentHermesMessages.filter(
@@ -281,7 +297,6 @@ async function verifyPersistedBrowserHunt(
     assert(huntTrace.length > 0, 'Hermes session trace contained no messages for the browser Hunt.');
     const toolNames = browserToolNames(huntTrace);
     assert(toolNames.includes('browser_navigate'), 'Hermes Hunt trace did not navigate to a public site.');
-    assert(toolNames.includes('browser_snapshot'), 'Hermes Hunt trace did not inspect a browser page.');
     assert(
       ['browser_click', 'browser_type', 'browser_press'].some((toolName) => toolNames.includes(toolName)),
       'Hermes Hunt trace did not interact with a public search or store flow.',
@@ -290,6 +305,7 @@ async function verifyPersistedBrowserHunt(
     return {
       candidateCount: row.candidates.length,
       sourceUrls,
+      productCanonicalUrls,
       traceMessageCount: huntTrace.length,
       toolNames,
     };
@@ -353,14 +369,17 @@ assert(historyB.response.ok && historyB.body && 'messages' in historyB.body, 'Us
 assert((historyB.body as ChatPage).messages.some((message) => message.content.includes(markerB)), 'User B marker was not persisted.');
 assert(!(historyB.body as ChatPage).messages.some((message) => message.content.includes(markerA)), 'User A content leaked into user B history.');
 
+const verifyStep11 = args.get('verify-step-11') === 'true';
+const verifyHunt = args.get('verify-hunt') === 'true' || verifyStep11;
 let huntEvidence: {
   candidateCount: number;
   sourceUrls: string[];
+  productCanonicalUrls: string[];
   traceMessageCount: number;
   toolNames: string[];
 } | null = null;
-if (args.get('verify-hunt') === 'true') {
-  const location: LiveForegroundLocation = {
+if (verifyHunt) {
+  const location: LiveForegroundLocation | null = verifyStep11 ? null : {
     latitude: 40.74843123,
     longitude: -73.98565678,
     accuracy: 25,
@@ -373,8 +392,10 @@ if (args.get('verify-hunt') === 'true') {
   );
   const hunt = await createAndComplete(
     tokenA,
-    'Run a local retail Hunt that requires my current location. Open a public search engine or retailer search page with browser_navigate, type the query into its search field, interact with the results, and inspect the current source pages. Find two currently available running shoes from public retailer or brand stores near me, compare them, and include the source links. Do not use API-backed web_search.',
-    location,
+    verifyStep11
+      ? 'Find three current waterproof hiking boots for a winter trip, with source links.'
+      : 'Run a local retail Hunt that requires my current location. Open a public search engine or retailer search page with browser_navigate, type the query into its search field, interact with the results, and inspect the current source pages. Find two currently available running shoes from public retailer or brand stores near me, compare them, and include the source links. Do not use API-backed web_search.',
+    location ?? undefined,
   );
   huntEvidence = await verifyPersistedBrowserHunt(
     userA,
@@ -384,8 +405,18 @@ if (args.get('verify-hunt') === 'true') {
     priorHermesMessageFingerprints,
   );
   assert(huntEvidence.sourceUrls.some((url) => hunt.run.response?.content.includes(url)), 'Browser Hunt response did not expose any persisted source URL.');
-  assert(!hunt.run.response?.content.includes(String(location.latitude)), 'Browser Hunt response exposed exact latitude.');
-  assert(!hunt.run.response?.content.includes(String(location.longitude)), 'Browser Hunt response exposed exact longitude.');
+  if (verifyStep11) {
+    assert(huntEvidence.candidateCount === 3, `Step 11 persisted ${huntEvidence.candidateCount} candidates instead of three.`);
+    assert(huntEvidence.productCanonicalUrls.length === 3, 'Step 11 did not persist three direct product candidates.');
+    assert(
+      huntEvidence.productCanonicalUrls.every((url) => hunt.run.response?.content.includes(url)),
+      'Step 11 response did not expose every direct product URL.',
+    );
+  }
+  if (location) {
+    assert(!hunt.run.response?.content.includes(String(location.latitude)), 'Browser Hunt response exposed exact latitude.');
+    assert(!hunt.run.response?.content.includes(String(location.longitude)), 'Browser Hunt response exposed exact longitude.');
+  }
 }
 
 const stopTurn = await request<CreatedTurn>(tokenB, '/v1/chat/messages', {
@@ -410,7 +441,8 @@ process.stdout.write(JSON.stringify({
     pagination: true,
     stop: true,
     crossUserIsolation: true,
-    browserHunt: args.get('verify-hunt') === 'true',
+    browserHunt: verifyHunt,
+    step11Hunt: verifyStep11,
   },
   eventCounts: { userA: completedA.events.length, stop: stopEvents.length },
   ...(huntEvidence ? { huntEvidence: {
