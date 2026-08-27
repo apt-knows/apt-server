@@ -88,6 +88,46 @@ describe('browser-researched Hunt evidence boundary', () => {
     expect(network.lookup).not.toHaveBeenCalled();
   });
 
+  it('requires affirmative coarse-area and fulfillment evidence for location-scoped candidates', async () => {
+    const grocery = candidate({
+      vertical: 'grocery',
+      candidate_kind: 'grocery_item',
+      fulfillment_or_store_context: 'Pickup at LIC Court Square serving 11101',
+    });
+    const input = record({
+      vertical: 'grocery',
+      constraints: { location: 'New York, NY, 11101, US', fulfillment: 'pickup' },
+      candidates: [grocery],
+    });
+    const requirements = { locationRequired: true, coarseLocationLabel: 'New York, NY, 11101, US' };
+
+    await expect(validateBrowserHuntRecord(input, Date.now(), requirements)).resolves.toEqual(input);
+    await expect(validateBrowserHuntRecord(record({
+      ...input,
+      candidates: [candidate({
+        vertical: 'grocery',
+        candidate_kind: 'grocery_item',
+        fulfillment_or_store_context: 'Pickup at 672 Memorial Drive, Chicopee, MA 01020; not near 11101',
+      })],
+    }), Date.now(), requirements)).rejects.toThrow('does not verify the coarse search area');
+    await expect(validateBrowserHuntRecord(record({
+      ...input,
+      candidates: [candidate({
+        vertical: 'grocery',
+        candidate_kind: 'grocery_item',
+        fulfillment_or_store_context: 'Ships to 11101',
+      })],
+    }), Date.now(), requirements)).rejects.toThrow('requested fulfillment method');
+    await expect(validateBrowserHuntRecord(record({
+      ...input,
+      candidates: [candidate({
+        vertical: 'grocery',
+        candidate_kind: 'grocery_item',
+        fulfillment_or_store_context: 'Pickup unavailable at 11101',
+      })],
+    }), Date.now(), requirements)).rejects.toThrow('requested fulfillment method');
+  });
+
   it('blocks local schemes and hostnames before DNS resolution', async () => {
     await expect(assertPublicHttpUrl('file:///etc/passwd')).rejects.toThrow('public HTTP(S)');
     await expect(assertPublicHttpUrl('http://localhost:8787/internal')).rejects.toThrow('Local network URLs are blocked');

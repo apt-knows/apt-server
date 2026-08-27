@@ -55,7 +55,7 @@ function bundle(privateFact = 'private-fact'): ClawTurnBundle {
   };
 }
 
-function candidate(): ProductCandidate {
+function candidate(overrides: Partial<ProductCandidate> = {}): ProductCandidate {
   return {
     candidate_id: 'candidate-1',
     vertical: 'retail',
@@ -76,6 +76,7 @@ function candidate(): ProductCandidate {
     matched_constraints: ['size 10'],
     tradeoffs: [],
     personalization_reasons: ['Matches a private preference without exposing it'],
+    ...overrides,
   };
 }
 
@@ -309,7 +310,9 @@ describe('Claw service tool binding', () => {
     const repository = fakeRepository([]);
     repository.saveHunt = async (input) => { saved.push(input); };
     const service = new ClawService(repository);
-    const researchedCandidate = candidate();
+    const researchedCandidate = candidate({
+      fulfillment_or_store_context: 'Pickup available near New York, NY 10001',
+    });
     const location = {
       latitude: 40.74843123,
       longitude: -73.98565678,
@@ -396,6 +399,12 @@ describe('Claw service tool binding', () => {
     expect(prepared.instructions).toContain('pass that exact observed address to browser_navigate');
     expect(prepared.instructions).toContain('a merchant homepage or shared catalog/search URL is not valid product evidence');
     expect(prepared.instructions).toContain('Use browser_back and one refreshed snapshot to return to the same catalog results');
+    expect(prepared.instructions).toContain('the coarse area is a mandatory constraint, not a search hint');
+    expect(prepared.instructions).toContain('try at least one different observed merchant');
+    expect(prepared.instructions).toContain('one fresh Bing query that retains the coarse area and excludes the failed merchant');
+    expect(prepared.instructions).toContain('generic nearby-grocery request that names no item');
+    expect(prepared.instructions).toContain('Do not carry an item or merchant forward merely because it appeared in an earlier Hunt');
+    expect(prepared.instructions).toContain('call apt_manage_shopping exactly once with the selected candidate from the newest Hunt');
     expect(prepared.instructions).not.toContain('40.7128');
     expect(prepared.instructions).not.toContain('-74.006');
     expect(repository.pinRun).toHaveBeenCalledWith(
