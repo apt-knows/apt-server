@@ -10,6 +10,7 @@ function candidate(overrides: Partial<ProductCandidate> = {}): ProductCandidate 
   return {
     candidate_id: 'candidate-1',
     vertical: 'retail',
+    candidate_kind: 'product',
     item_name: 'Everyday shoe',
     merchant_name: 'Example Merchant',
     canonical_url: 'https://merchant.example/items/1',
@@ -73,6 +74,58 @@ describe('browser-researched Hunt evidence boundary', () => {
     await expect(assertPublicHttpUrl('https://user:secret@merchant.example/item')).rejects.toThrow('credential-free');
     network.lookup.mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }]);
     await expect(assertPublicHttpUrl('https://merchant.example/item')).rejects.toThrow('metadata-network URLs are blocked');
+  });
+
+  it('rejects merchant homepages and duplicate product URLs as product evidence', async () => {
+    await expect(validateBrowserHuntRecord(record({
+      candidates: [candidate({ canonical_url: 'https://merchant.example/', source_url: 'https://merchant.example/' })],
+    }))).rejects.toThrow('direct-product URL');
+
+    await expect(validateBrowserHuntRecord(record({
+      result_limit: 2,
+      candidates: [candidate(), candidate({ candidate_id: 'candidate-2' })],
+    }))).rejects.toThrow('distinct direct-product URL');
+    expect(network.lookup).not.toHaveBeenCalled();
+  });
+
+  it('requires affirmative coarse-area and fulfillment evidence for location-scoped candidates', async () => {
+    const grocery = candidate({
+      vertical: 'grocery',
+      candidate_kind: 'grocery_item',
+      fulfillment_or_store_context: 'Pickup at LIC Court Square serving 11101',
+    });
+    const input = record({
+      vertical: 'grocery',
+      constraints: { location: 'New York, NY, 11101, US', fulfillment: 'pickup' },
+      candidates: [grocery],
+    });
+    const requirements = { locationRequired: true, coarseLocationLabel: 'New York, NY, 11101, US' };
+
+    await expect(validateBrowserHuntRecord(input, Date.now(), requirements)).resolves.toEqual(input);
+    await expect(validateBrowserHuntRecord(record({
+      ...input,
+      candidates: [candidate({
+        vertical: 'grocery',
+        candidate_kind: 'grocery_item',
+        fulfillment_or_store_context: 'Pickup at 672 Memorial Drive, Chicopee, MA 01020; not near 11101',
+      })],
+    }), Date.now(), requirements)).rejects.toThrow('does not verify the coarse search area');
+    await expect(validateBrowserHuntRecord(record({
+      ...input,
+      candidates: [candidate({
+        vertical: 'grocery',
+        candidate_kind: 'grocery_item',
+        fulfillment_or_store_context: 'Ships to 11101',
+      })],
+    }), Date.now(), requirements)).rejects.toThrow('requested fulfillment method');
+    await expect(validateBrowserHuntRecord(record({
+      ...input,
+      candidates: [candidate({
+        vertical: 'grocery',
+        candidate_kind: 'grocery_item',
+        fulfillment_or_store_context: 'Pickup unavailable at 11101',
+      })],
+    }), Date.now(), requirements)).rejects.toThrow('requested fulfillment method');
   });
 
   it('blocks local schemes and hostnames before DNS resolution', async () => {

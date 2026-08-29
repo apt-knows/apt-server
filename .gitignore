@@ -4,6 +4,8 @@ coverage/
 .env
 .DS_Store
 *.log
+__pycache__/
+*.py[cod]
 supabase/.temp/
 .hermes/
 .local/

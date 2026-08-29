@@ -1,10 +1,12 @@
 import { z } from 'zod';
+import { trustedItemSnapshotSchema } from '../shopping/domain.js';
 
 export const CLAW_ALLOWED_CAPABILITIES = ['memory', 'session_search', 'skills', 'browser', 'apt_bridge'] as const;
 export const CLAW_HISTORY_BUDGET_DEFAULT = 48_000;
 export const CLAW_LOCATION_MAX_AGE_MS = 5 * 60 * 1_000;
 export const CLAW_LOCATION_MAX_ACCURACY_METERS = 1_000;
 const directCommerceTransaction = /\b(?:place|submit|complete|finali[sz]e)\s+(?:the\s+|my\s+|an?\s+)?(?:restaurant\s+)?order\b|\b(?:add\s+(?:it|this|them|the\s+\w+)\s+to\s+(?:my\s+|the\s+)?cart|check\s*out|checkout|buy|purchase|order)\s+(?:it|this|them|that|for me|now)\b|\b(?:reserve|book)\s+(?:it|this|a\s+table|the\s+restaurant)\b|\b(?:contact|call|message|email)\s+(?:the\s+)?(?:merchant|restaurant|store)\b|\b(?:track|cancel|return)\s+(?:the\s+|my\s+|an?\s+)?order\b/i;
+const aptOwnedDestination = /\b(?:my\s+)?apt(?:'s)?\s+(?:cart|wishlist|board)\b|\b(?:cart|wishlist|board)\s+(?:in|on)\s+apt\b/i;
 
 export const foregroundLocationSchema = z.object({
   latitude: z.number().finite().min(-90).max(90),
@@ -25,31 +27,12 @@ export function validateForegroundLocation(location: ForegroundLocation, now = D
 }
 
 export function shouldWithholdForegroundLocation(message: string) {
-  return directCommerceTransaction.test(message);
+  return directCommerceTransaction.test(message) && !aptOwnedDestination.test(message);
 }
 
-const boundedNullable = (maximum: number) => z.string().trim().min(1).max(maximum).nullable();
-
-export const productCandidateSchema = z.object({
+export const productCandidateSchema = trustedItemSnapshotSchema.safeExtend({
   candidate_id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
-  vertical: z.enum(['retail', 'grocery', 'food']),
-  item_name: z.string().trim().min(1).max(300),
-  merchant_name: z.string().trim().min(1).max(200),
-  canonical_url: z.url().max(2_048),
-  variant_or_size: boundedNullable(200),
-  current_price: z.number().finite().nonnegative().nullable(),
-  currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
-  price_qualifier: boundedNullable(160),
-  availability: boundedNullable(200),
-  fulfillment_or_store_context: boundedNullable(240),
-  source_url: z.url().max(2_048),
-  observed_at: z.iso.datetime({ offset: true }),
-  verification_status: z.enum(['verified', 'partially_verified', 'unconfirmed']),
-  image_url: z.url().max(2_048).nullable(),
-  matched_constraints: z.array(z.string().trim().min(1).max(200)).max(20),
-  tradeoffs: z.array(z.string().trim().min(1).max(300)).max(10),
-  personalization_reasons: z.array(z.string().trim().min(1).max(300)).max(10),
-}).strict();
+});
 
 export type ProductCandidate = z.infer<typeof productCandidateSchema>;
 

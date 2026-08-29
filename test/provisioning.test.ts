@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { profileIdentity, ProvisioningService, type HermesProfileAdmin } from '../src/admin/service.js';
+import { APT_BROWSER_COMMAND_TIMEOUT_SECONDS, browserProfileSettings } from '../src/claw/browser-config.js';
 import { instance, repository, USER_A } from './fixtures.js';
 
 function hermes(exists = false): HermesProfileAdmin {
@@ -13,6 +14,11 @@ function hermes(exists = false): HermesProfileAdmin {
 }
 
 describe('manual provisioning lifecycle', () => {
+  it('allows a cold browser snapshot to finish before Hermes aborts the command', () => {
+    expect(APT_BROWSER_COMMAND_TIMEOUT_SECONDS).toBe(45);
+    expect(browserProfileSettings()).toContainEqual(['browser.command_timeout', '45']);
+  });
+
   it('derives stable opaque profile and session identifiers', () => {
     const first = profileIdentity(USER_A, 's'.repeat(32));
     expect(first).toEqual(profileIdentity(USER_A, 's'.repeat(32)));

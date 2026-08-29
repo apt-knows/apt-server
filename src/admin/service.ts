@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import { hermesApiKey } from '../agent-runtime.js';
 import { aptBridgeToken } from '../claw/bridge-auth.js';
+import { browserProfileSettings } from '../claw/browser-config.js';
 import type { AppConfig } from '../config.js';
 import type { AgentInstance } from '../domain.js';
 import { AppError } from '../errors.js';
@@ -83,6 +84,7 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
     const bridgeTools = [
       'apt_search_knowledge', 'apt_remember', 'apt_update_private_artifact',
       'apt_propose_shared_change', 'apt_previous_hunts', 'apt_commerce_hunt',
+      'apt_get_shopping_state', 'apt_manage_shopping',
     ];
     await this.installBrowserPolicy(profileName);
     const entries: [string, string][] = [
@@ -91,9 +93,7 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
       ['model.api_key', `\${${this.config.providerKeyEnv}}`],
       ['platform_toolsets.api_server', '["memory","session_search","skills","browser"]'],
       ['agent.disabled_toolsets', '["web","search","terminal","file","code_execution","vision","video","image_gen","video_gen","bfl","x_search","tts","stt","todo","context_engine","clarify","delegation","cronjob","homeassistant","spotify","discord","discord_admin","yuanbao","computer_use"]'],
-      ['browser.backend', '"off"'],
-      ['browser.allow_private_urls', 'false'],
-      ['browser.restrict_evaluate', 'true'],
+      ...browserProfileSettings(),
       ['security.website_blocklist.enabled', 'true'],
       ['security.website_blocklist.domains', '["localhost","local","0.0.0.0","127.0.0.1","::1","metadata.google.internal"]'],
       ['plugins.enabled', '["apt-hunt-browser-policy"]'],
@@ -183,7 +183,7 @@ export class HermesCliProfileAdmin implements HermesProfileAdmin {
         }
         return '';
       }));
-      for (const required of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press']) {
+      for (const required of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_scroll', 'browser_back', 'browser_press', 'browser_console', 'browser_observed_link']) {
         if (!browserTools.has(required)) throw new Error(`Hermes browser toolset is missing required Hunt primitive ${required}.`);
       }
 
